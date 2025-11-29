@@ -11,6 +11,10 @@ from pydantic import BaseModel
 
 from magi.controller import MAGIController
 from magi.models import ModelOutput
+from magi.logging_config import setup_logging
+
+# Phase 1: 構造化ロギングの設定
+setup_logging(level="INFO", use_json=True)
 
 app = FastAPI(title="MAGI System MCP Server", version="1.0.0")
 app.add_middleware(

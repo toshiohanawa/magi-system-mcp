@@ -106,10 +106,16 @@
 
 ## 構成
 - `src/magi`: モード・クライアント・コントローラー実装
+  - `models.py`: データモデル（`ModelOutput`, `LLMSuccess`, `LLMFailure`）
+  - `clients/`: LLMクライアント実装（型安全なエラーハンドリング対応）
+  - `config.py`: 設定管理（後方互換性維持）
+  - `settings.py`: pydantic-settingsベースの設定管理（Phase 1）
+  - `logging_config.py`: 構造化ロギングシステム（Phase 1）
 - `src/api/server.py`: FastAPI MCP サーバー (`/magi/start`, `/magi/step`, `/magi/stop`)
 - `mcp.json`: Cursor からの MCP 接続設定（OpenAPIツールとして http://127.0.0.1:8787 と /openapi.json を参照）
 - `openapi.json`: OpenAPI スキーマ（サーバー読み込み時にも再生成、ローカル確認用）
 - `Dockerfile` / `docker-compose.yml`: 非 root・127.0.0.1 バインドでのコンテナ実行
+- `tests/test_integration.py`: 統合テスト（Phase 1）
 
 ## LLM CLI設定
 全LLMはホスト側のHTTPラッパー経由でCLIコマンドを実行します。環境変数で上書き可能です：
@@ -118,11 +124,16 @@
 - Gemini: `GEMINI_COMMAND` (デフォルト: `gemini generate` - Autoモード)
 - Judge: `JUDGE_COMMAND` (デフォルト: `judge generate`)
 
-各CLIは標準入力からプロンプトを受け取り、標準出力に結果を返します。タイムアウトはデフォルト120秒（`WRAPPER_TIMEOUT` で変更可）、エラー時はスタブ応答を返します。
+各CLIは標準入力からプロンプトを受け取り、標準出力に結果を返します。タイムアウトはデフォルト300秒（5分、`WRAPPER_TIMEOUT` で変更可）、エラー時は型安全なエラーハンドリングで処理されます。
 
 タイムアウト調整:
-- HTTPクライアント側: `LLM_TIMEOUT` または個別に `CODEX_TIMEOUT` / `CLAUDE_TIMEOUT` / `GEMINI_TIMEOUT` / `JUDGE_TIMEOUT`
-- ラッパー側: `WRAPPER_TIMEOUT`（FastAPI側でCLI実行を待つ上限）
+- HTTPクライアント側: `LLM_TIMEOUT` または個別に `CODEX_TIMEOUT` / `CLAUDE_TIMEOUT` / `GEMINI_TIMEOUT` / `JUDGE_TIMEOUT`（デフォルト: 300秒）
+- ラッパー側: `WRAPPER_TIMEOUT`（FastAPI側でCLI実行を待つ上限、デフォルト: 300秒）
+
+**Phase 1の改善点**:
+- エラーハンドリングの型安全性向上（`LLMSuccess`/`LLMFailure`）
+- pydantic-settingsによる設定管理（`.env`ファイル対応、バリデーション）
+- 構造化ロギング（JSON形式、コンテキスト情報の自動付与）
 
 HTTPラッパーのURLは環境変数で上書き可能です（デフォルト: `http://host.docker.internal:900{1-4}`）：
 - `CODEX_WRAPPER_URL`, `CLAUDE_WRAPPER_URL`, `GEMINI_WRAPPER_URL`, `JUDGE_WRAPPER_URL`
@@ -154,9 +165,76 @@ curl http://127.0.0.1:8787/health
 - ホストラッパーが起動していない場合、スタブ応答が返されます。
 - macOS用バイナリ（claude/gemini）もホスト側で実行されるため、問題なく動作します。
 
+## 環境構築
+
+### クイックセットアップ
+
+環境構築スクリプトを実行します：
+
+```bash
+bash setup_environment.sh
+```
+
+このスクリプトは以下を自動的に実行します：
+1. Python仮想環境の作成（uvを使用）
+2. 依存関係のインストール（requirements.txtとhost_wrappers/requirements.txt）
+3. LLM CLIの確認（codex, claude, gemini, judge）
+4. Docker環境の確認
+5. Jupyterカーネルの設定（オプション）
+
+### 手動セットアップ
+
+#### 1. Python仮想環境の作成
+
+```bash
+uv venv
+source .venv/bin/activate
+```
+
+#### 2. 依存関係のインストール
+
+```bash
+uv pip install -r requirements.txt
+uv pip install -r host_wrappers/requirements.txt
+```
+
+#### 3. LLM CLIのインストール確認
+
+以下のCLIがインストールされていることを確認してください：
+- `codex` - Codex CLI
+- `claude` - Claude CLI
+- `gemini` - Gemini CLI
+- `judge` - Judge CLI（オプション、CursorがJudgeとして動作する場合は不要）
+
+環境変数でCLIコマンドをカスタマイズできます：
+- `CODEX_COMMAND` (デフォルト: `codex exec --skip-git-repo-check`)
+- `CLAUDE_COMMAND` (デフォルト: `claude generate`)
+- `GEMINI_COMMAND` (デフォルト: `gemini generate`)
+- `JUDGE_COMMAND` (デフォルト: `judge generate`)
+
+#### 4. Docker環境の準備
+
+Docker Desktopがインストールされていることを確認してください。
+
 ## 使い方
 
 ### ホストラッパーの起動（推奨）
+
+#### 方法1: スクリプトを使用（推奨）
+
+```bash
+bash scripts/start_host_wrappers.sh
+```
+
+このスクリプトは4つのラッパーをバックグラウンドで起動します。
+
+停止するには：
+```bash
+bash scripts/stop_host_wrappers.sh
+```
+
+#### 方法2: 手動で起動
+
 1. 依存インストール: `pip install -r host_wrappers/requirements.txt`
 2. 別ターミナルでそれぞれ起動（ポート: codex=9001, claude=9002, gemini=9003, judge=9004）
    ```bash
@@ -185,7 +263,7 @@ curl http://127.0.0.1:8787/openapi.json
 ### 運用・トラブルシュート（LLM実行）
 - 接続先: Docker内からは `host.docker.internal`、ホストから直接走らせる場合は自動で `127.0.0.1` にフォールバック。必要なら `*_WRAPPER_URL` で固定。
 - 起動順: 1) ホストでラッパー起動 → 2) `docker-compose up`。ラッパー未起動ならスタブ応答になります。
-- タイムアウト: Codex/Gemini は重いので `WRAPPER_TIMEOUT` と `CODEX_TIMEOUT` / `GEMINI_TIMEOUT` を120〜180秒に調整推奨。全体に効かせる場合は `LLM_TIMEOUT`。
+- タイムアウト: デフォルトは300秒（5分）。必要に応じて `WRAPPER_TIMEOUT` と `CODEX_TIMEOUT` / `GEMINI_TIMEOUT` を調整可能。全体に効かせる場合は `LLM_TIMEOUT`。
 - 504/ReadTimeout: CLI完了待ち。タイムアウトを延長し、`ps` 等でハング確認、短いプロンプトで所要時間を計測すると切り分けやすいです。
 - スタブ応答: `/health` が ok か、`CODEX_COMMAND` などコマンドパスが正しいか、ラッパーがリッスンしているかを確認。
 
@@ -329,6 +407,43 @@ MCPツールとして利用可能なエンドポイント：
    - レスポンス: `{"status": "ok|degraded", "commands": {"codex": true, "claude": true, "gemini": true}}`
 
 ## テスト
-```
+
+### ユニットテストと統合テスト
+```bash
+# すべてのテストを実行
 pytest
+
+# 統合テストのみ実行（実際のLLMとの統合を検証）
+pytest -m integration
+
+# 統合テストを除外して実行（高速）
+pytest -m "not integration"
 ```
+
+### テスト構成
+- **ユニットテスト**: 個別コンポーネントのテスト（`tests/test_clients.py`, `tests/test_proposal_battle.py`など）
+- **統合テスト**: 実際のLLMとの統合を検証（`tests/test_integration.py`）
+  - Proposal Battleフロー全体のテスト
+  - 型安全なエラーハンドリングのテスト
+  - 後方互換性のテスト
+  - セッション管理のテスト
+
+## Phase 1の実装内容
+
+### エラーハンドリングの型安全性向上
+- `LLMSuccess`: 成功時の結果を型安全に表現
+- `LLMFailure`: 失敗時の結果を型安全に表現（エラータイプ: timeout, http_error, cli_missing, exception）
+- `generate_with_result()`: 新しい型安全なメソッド（後方互換性のため既存の`generate()`も保持）
+
+### 設定管理の簡素化
+- `pydantic-settings`を使用した型安全な設定管理
+- `.env`ファイル対応
+- タイムアウト値のバリデーション
+- 環境変数の優先順位を維持（既存の動作を保持）
+
+### 構造化ロギング
+- JSON形式のログ出力
+- コンテキスト情報（session_id, trace_id, model等）の自動付与
+- 標準出力とファイル出力の両方に対応
+
+詳細は `PHASE1_IMPLEMENTATION.md` を参照してください。

@@ -107,4 +107,22 @@ class AppConfig:
 
     @classmethod
     def from_env(cls) -> "AppConfig":
-        return cls()
+        """
+        環境変数から設定を読み込む
+        
+        Phase 1: pydantic-settingsを使用した新しい設定システムを統合
+        （後方互換性を維持しながら、型安全性とバリデーションを向上）
+        """
+        try:
+            # Phase 1: 新しい設定システムを使用（.envファイル対応、バリデーション付き）
+            from magi.settings import Settings
+            settings = Settings.from_env()
+            return cls(
+                codex=LLMConfig(**settings.get_codex_config()),
+                claude=LLMConfig(**settings.get_claude_config()),
+                gemini=LLMConfig(**settings.get_gemini_config()),
+                judge=LLMConfig(**settings.get_judge_config()),
+            )
+        except ImportError:
+            # pydantic-settingsがインストールされていない場合は既存の実装を使用
+            return cls()

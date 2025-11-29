@@ -8,3 +8,7 @@ services:
       - .:/workspace:rw
     restart: unless-stopped
     user: "mcp"
+    environment:
+      - CODEX_TIMEOUT=300
+      - WRAPPER_TIMEOUT=300
+      - LLM_TIMEOUT=300

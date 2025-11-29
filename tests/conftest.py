@@ -14,6 +14,8 @@ if str(SRC) not in sys.path:
 def pytest_configure(config: pytest.Config) -> None:
     """Register asyncio marker so tests can mark coroutine functions."""
     config.addinivalue_line("markers", "asyncio: mark test as asyncio coroutine")
+    config.addinivalue_line("markers", "integration: mark test as integration test")
+    config.addinivalue_line("markers", "chaos: mark test as chaos test")
 
 
 @pytest.hookimpl(tryfirst=True)
