@@ -1,0 +1,328 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MAGI System MCP Server",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/magi/start": {
+      "post": {
+        "summary": "Start Magi",
+        "operationId": "start_magi_magi_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/magi/step": {
+      "post": {
+        "summary": "Step Magi",
+        "operationId": "step_magi_magi_step_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/magi/stop": {
+      "post": {
+        "summary": "Stop Magi",
+        "operationId": "stop_magi_magi_stop_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "commands": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Commands"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "commands"
+        ],
+        "title": "HealthResponse"
+      },
+      "StartRequest": {
+        "properties": {
+          "initial_prompt": {
+            "type": "string",
+            "title": "Initial Prompt"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "default": "proposal_battle"
+          },
+          "skip_claude": {
+            "type": "boolean",
+            "title": "Skip Claude",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "initial_prompt"
+        ],
+        "title": "StartRequest"
+      },
+      "StartResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "results": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "results"
+        ],
+        "title": "StartResponse"
+      },
+      "StepRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "decision"
+        ],
+        "title": "StepRequest"
+      },
+      "StepResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "adopted_model": {
+            "type": "string",
+            "title": "Adopted Model"
+          },
+          "adopted_text": {
+            "type": "string",
+            "title": "Adopted Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "adopted_model",
+          "adopted_text"
+        ],
+        "title": "StepResponse"
+      },
+      "StopRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "StopRequest"
+      },
+      "StopResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "stopped": {
+            "type": "boolean",
+            "title": "Stopped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "stopped"
+        ],
+        "title": "StopResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+services:
+  magi-mcp:
+    build: .
+    container_name: magi-mcp
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - .:/workspace:rw
+    restart: unless-stopped
+    user: "mcp"
