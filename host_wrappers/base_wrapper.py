@@ -24,7 +24,7 @@ def create_wrapper_app(command_env: str, default_cmd: str) -> FastAPI:
     timeout = float(
         os.getenv(
             "WRAPPER_TIMEOUT",
-            os.getenv("LLM_TIMEOUT", os.getenv("MAGI_TIMEOUT_DEFAULT", "300")),
+            os.getenv("LLM_TIMEOUT", os.getenv("MAGI_TIMEOUT_DEFAULT", "600")),
         )
     )
 

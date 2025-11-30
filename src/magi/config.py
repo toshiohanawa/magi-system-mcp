@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 
 
-DEFAULT_TIMEOUT = os.getenv("MAGI_TIMEOUT_DEFAULT") or os.getenv("LLM_TIMEOUT") or "300"
+DEFAULT_TIMEOUT = os.getenv("MAGI_TIMEOUT_DEFAULT") or os.getenv("LLM_TIMEOUT") or "600"
 
 
 def _split_cmd(value: str) -> List[str]:

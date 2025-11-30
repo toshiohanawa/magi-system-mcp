@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Literal
+from typing import Dict, Optional, Literal, List
+from enum import Enum
 import uuid
 import time
 
@@ -83,3 +84,56 @@ class SessionState:
     @classmethod
     def new(cls, mode: str) -> "SessionState":
         return cls(session_id=str(uuid.uuid4()), mode=mode)
+
+
+# MAGI Consensus Models
+class Persona(str, Enum):
+    """Persona enumeration for MAGI consensus system."""
+
+    MELCHIOR = "melchior"  # Gemini - Scientist
+    BALTHASAR = "balthasar"  # Claude - Mother (Safety)
+    CASPAR = "caspar"  # Codex - Pragmatist
+
+
+class Vote(str, Enum):
+    """Vote enumeration for persona evaluation."""
+
+    YES = "YES"
+    NO = "NO"
+    CONDITIONAL = "CONDITIONAL"
+
+
+class Decision(str, Enum):
+    """Final decision enumeration."""
+
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    CONDITIONAL = "CONDITIONAL"
+
+
+class RiskLevel(str, Enum):
+    """Risk level enumeration."""
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+@dataclass
+class PersonaResult:
+    """Result from a single persona evaluation."""
+
+    persona: Persona
+    vote: Vote
+    reason: str
+
+
+@dataclass
+class MagiDecision:
+    """Final MAGI consensus decision with explainable reasoning."""
+
+    decision: Decision
+    risk_level: RiskLevel
+    persona_results: List[PersonaResult]
+    aggregate_reason: str
+    suggested_actions: List[str] = field(default_factory=list)

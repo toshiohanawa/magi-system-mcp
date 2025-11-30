@@ -14,7 +14,7 @@ from magi.models import ModelOutput, LLMResult, LLMSuccess, LLMFailure
 
 
 logger = logging.getLogger(__name__)
-DEFAULT_TIMEOUT = float(os.getenv("MAGI_TIMEOUT_DEFAULT", os.getenv("LLM_TIMEOUT", "300")))
+DEFAULT_TIMEOUT = float(os.getenv("MAGI_TIMEOUT_DEFAULT", os.getenv("LLM_TIMEOUT", "600")))
 
 
 class BaseLLMClient(abc.ABC):

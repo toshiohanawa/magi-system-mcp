@@ -27,7 +27,7 @@ _ALLOWED_POLICIES = {"strict", "lenient"}
 class LLMClientSettings(BaseSettings):
     """個別のLLMクライアント設定"""
     url: str
-    timeout: float = Field(default=300.0, description="タイムアウト（秒）")
+    timeout: float = Field(default=600.0, description="タイムアウト（秒）")
     command: Optional[str] = None
     
     model_config = SettingsConfigDict(
@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     fallback_policy: str = Field(default="lenient", description="LLM失敗時のフォールバックポリシー (lenient|strict)")
     verbose_default: bool = Field(default=False, description="verboseレスポンスをデフォルトで有効にするか (MAGI_VERBOSE_DEFAULT)")
     
+    # MAGI Consensus設定
+    melchior_weight: float = Field(default=0.4, description="Melchior persona weight")
+    balthasar_weight: float = Field(default=0.35, description="Balthasar persona weight")
+    caspar_weight: float = Field(default=0.25, description="Caspar persona weight")
+    conditional_weight: float = Field(default=0.3, description="Conditional vote weight")
+    default_criticality: str = Field(default="NORMAL", description="Default criticality level (CRITICAL|NORMAL|LOW)")
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -85,7 +92,7 @@ class Settings(BaseSettings):
         """タイムアウト値のバリデーション"""
         if v <= 0:
             raise ValueError("timeout must be positive")
-        if v > 600:  # 10分を超える場合は警告
+        if v > 1200:  # 20分を超える場合は警告
             import warnings
             warnings.warn(f"Timeout {v}s is very long, consider reducing it")
         return v

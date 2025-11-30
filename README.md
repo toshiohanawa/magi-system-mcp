@@ -4,7 +4,7 @@
 
 **全LLMはCLI版のみ対応**（HTTP API/SDK呼び出しは全面禁止）
 
-**構成**: デフォルトではホスト側でFastAPIラッパーを起動し、CLIバイナリ（codex, claude, gemini, judge）をホスト側で実行します。コンテナ内でCLIが利用可能な場合は `USE_CONTAINER_WRAPPERS=1 scripts/start_magi.sh` でコンテナ化ラッパーに切り替え可能です。
+**構成**: デフォルトではホスト側でFastAPIラッパーを起動し、CLIバイナリ（codex, claude, gemini, judge）をホスト側で実行します。DockerfileにはCLIは同梱されていません（イメージを軽量化するため）。コンテナ内でCLIを動かす場合は、README記載のスニペットをDockerfileに追記してCLIをインストールしてください。その後、`USE_CONTAINER_WRAPPERS=1 scripts/start_magi.sh` でコンテナ化ラッパーに切り替え可能です。
 
 ## ドキュメントマップ
 - まずは本READMEの「クイックセットアップ」と「MCP設定」を確認。
@@ -114,11 +114,14 @@
 
 ## 構成
 - `src/magi`: モード・クライアント・コントローラー実装
-  - `models.py`: データモデル（`ModelOutput`, `LLMSuccess`, `LLMFailure`）
+  - `models.py`: データモデル（`ModelOutput`, `LLMSuccess`, `LLMFailure`, `MagiDecision`, `Persona`, `Vote`, `Decision`, `RiskLevel`）
   - `clients/`: LLMクライアント実装（型安全なエラーハンドリング対応）
   - `config.py`: 設定管理（後方互換性維持）
   - `settings.py`: pydantic-settingsベースの設定管理（Phase 1）
   - `logging_config.py`: 構造化ロギングシステム（Phase 1）
+  - `personas.py`: ペルソナプロンプト定義（Melchior, Balthasar, Caspar）
+  - `prompt_builder.py`: ペルソナプロンプトビルダー
+  - `consensus.py`: MAGI Consensus Engine（並列評価、投票、リスク評価）
 - `src/api/server.py`: FastAPI MCP サーバー (`/magi/start`, `/magi/step`, `/magi/stop`)
 - `mcp.json`: Cursor からの MCP 接続設定（OpenAPIツールとして http://127.0.0.1:8787 と /openapi.json を参照）
 - `openapi.json`: OpenAPI スキーマ（サーバー読み込み時にも再生成、ローカル確認用）
@@ -126,13 +129,13 @@
 - `tests/test_integration.py`: 統合テスト（Phase 1）
 
 ## LLM CLI設定
-全LLMはHTTPラッパー経由でCLIコマンドを実行します。デフォルトではホスト側のラッパーを使用し、環境変数で上書き可能です：
+全LLMはHTTPラッパー経由でCLIコマンドを実行します。デフォルトではホストラッパーを使用し、環境変数で上書き可能です（コンテナ化ラッパーを使う場合は `USE_CONTAINER_WRAPPERS=1` を指定）：
 - Codex: `CODEX_COMMAND` (デフォルト: `codex exec --skip-git-repo-check`)
 - Claude: `CLAUDE_COMMAND` (デフォルト: `claude generate`)
 - Gemini: `GEMINI_COMMAND` (デフォルト: `gemini generate` - Autoモード)
 - Judge: `JUDGE_COMMAND` (デフォルト: `judge generate`)
 
-各CLIは標準入力からプロンプトを受け取り、標準出力に結果を返します。タイムアウトはデフォルト300秒（5分）で、`MAGI_TIMEOUT_DEFAULT` を基準に全コンポーネントで共有できます。
+各CLIは標準入力からプロンプトを受け取り、標準出力に結果を返します。タイムアウトはデフォルト600秒（10分）で、`MAGI_TIMEOUT_DEFAULT` を基準に全コンポーネントで共有できます。
 
 タイムアウト調整（値を1カ所で揃える場合は `MAGI_TIMEOUT_DEFAULT` を設定）:
 - HTTPクライアント側: `LLM_TIMEOUT` または個別に `CODEX_TIMEOUT` / `CLAUDE_TIMEOUT` / `GEMINI_TIMEOUT` / `JUDGE_TIMEOUT`（デフォルト: `MAGI_TIMEOUT_DEFAULT` から継承）
@@ -148,7 +151,7 @@ HTTPラッパーのURLは環境変数で上書き可能です（デフォルト:
 
 ### 動作確認
 
-ホストラッパーとブリッジが正しく動作しているか確認します：
+ホストラッパーとブリッジが正しく動作しているか確認します（ホストラッパーモードの例。コンテナ化ラッパー利用時は `codex-wrapper:9001` などに差し替えてください）：
 
 ```bash
 # 1. ホストラッパーの起動状態を確認
@@ -282,12 +285,10 @@ Docker Desktopがインストールされていることを確認してくださ
 
 MAGIシステムは2つのモードで動作します：
 
-1. **ホストラッパーモード（デフォルト）**: ホスト側でラッパーを起動し、CLIバイナリ（codex, claude, gemini, judge）をホスト側で実行
+1. **ホストラッパーモード（デフォルト）**: ホスト側でラッパーを起動し、ホストにインストール済みのCLIバイナリ（codex, claude, gemini, judge）を実行
 2. **コンテナ化ラッパーモード（オプション）**: Dockerコンテナ内でラッパーを起動（CLIバイナリがコンテナ内で利用可能な場合のみ）
 
-**デフォルトはホストラッパーモードです。** これは、CLIバイナリがホスト側にインストールされている必要があるためです。
-
-コンテナ化ラッパーを使用する場合は、`USE_CONTAINER_WRAPPERS=1`を設定してください。
+**デフォルトはホストラッパーモードです。** 既存のホスト前提ワークフローはそのまま動作します。コンテナ内でCLIを動かしたい場合のみ、DockerfileにCLIインストールを追加してから `USE_CONTAINER_WRAPPERS=1` を指定してください。
 
 ### ホストラッパーの起動
 
@@ -347,9 +348,19 @@ USE_CONTAINER_WRAPPERS=1 bash scripts/start_magi.sh
 この場合、以下が実行されます：
 1. コンテナ化ラッパーサービス（codex-wrapper, claude-wrapper, gemini-wrapper, judge-wrapper）を起動
 2. Dockerコンテナ（全サービス）を起動
-3. 起動状態を確認
+3. 起動状態を確認（`codex-wrapper:9001` などに接続）
 
-**注意**: コンテナ化ラッパーモードを使用する場合、コンテナ内でCLIバイナリ（codex, claude, gemini, judge）が利用可能である必要があります。通常はホストラッパーモードを使用してください。
+**注意**: コンテナ化ラッパーモードでは、コンテナ内でCLIバイナリ（codex, claude, gemini, judge）が利用可能である必要があります。デフォルトのDockerfileにはCLIは同梱されていません。コンテナでCLIを動かす場合は、以下のスニペットをDockerfileに追記してCLIをインストールしてください。
+
+**DockerfileにCLIを追加する場合の例**（`RUN pip install ...` の後に追記）:
+```Dockerfile
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && npm install -g @openai/codex @anthropic-ai/claude-code @google/gemini-cli \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+```
 
 停止するには：
 ```bash
@@ -364,7 +375,7 @@ bash scripts/stop_magi.sh
 bash scripts/start_host_wrappers.sh
 
 # 2. Dockerコンテナ（magi-mcpのみ）を起動
-docker-compose up -d --build --no-deps magi-mcp
+USE_CONTAINER_WRAPPERS=0 docker-compose up -d --build --no-deps magi-mcp
 ```
 
 **コンテナ化ラッパーモード:**
@@ -398,7 +409,7 @@ curl http://127.0.0.1:8787/openapi.json
 ### 運用・トラブルシュート（LLM実行）
 - 接続先: Docker内からは `host.docker.internal`、ホストから直接走らせる場合は自動で `127.0.0.1` にフォールバック。必要なら `*_WRAPPER_URL` で固定。
 - 起動順: 1) ホストでラッパー起動 → 2) `docker-compose up`。ラッパー未起動ならスタブ応答になります。
-- タイムアウト: デフォルトは300秒（5分）。必要に応じて `WRAPPER_TIMEOUT` と `CODEX_TIMEOUT` / `GEMINI_TIMEOUT` を調整可能。全体に効かせる場合は `LLM_TIMEOUT`。
+- タイムアウト: デフォルトは600秒（10分）。必要に応じて `WRAPPER_TIMEOUT` と `CODEX_TIMEOUT` / `GEMINI_TIMEOUT` を調整可能。全体に効かせる場合は `LLM_TIMEOUT`。
 - 504/ReadTimeout: CLI完了待ち。タイムアウトを延長し、`ps` 等でハング確認、短いプロンプトで所要時間を計測すると切り分けやすいです。
 - スタブ応答: `/health` が ok か、`CODEX_COMMAND` などコマンドパスが正しいか、ラッパーがリッスンしているかを確認。
 
@@ -651,6 +662,82 @@ MCPツールとして利用可能なエンドポイント：
 
 4. **`GET /health`** - ヘルスチェック（CLI状態を取得）
    - レスポンス: `{"status": "ok|degraded", "commands": {"codex": true, "claude": true, "gemini": true}}`
+
+## MAGI Consensus Overview
+
+MAGI Consensusは、3つのペルソナ（Melchior/Gemini、Balthasar/Claude、Caspar/Codex）による並列評価と投票システムです。
+
+### モードの選択
+
+`/magi/start`エンドポイントで`mode`パラメータを指定できます：
+
+- `mode: "proposal_battle"` (デフォルト): 従来のProposal Battleモード（順次実行）
+- `mode: "consensus"`: MAGI Consensusモード（並列評価、投票、リスク評価）
+
+### Consensusモードの使用例
+
+```json
+{
+  "initial_prompt": "このコード変更を評価してください: ...",
+  "mode": "consensus",
+  "criticality": "NORMAL"
+}
+```
+
+### レスポンス構造
+
+Consensusモードでは、`magi_decision`フィールドに以下の情報が含まれます：
+
+```json
+{
+  "session_id": "...",
+  "results": {},
+  "magi_decision": {
+    "decision": "APPROVED | REJECTED | CONDITIONAL",
+    "risk_level": "LOW | MEDIUM | HIGH",
+    "persona_results": [
+      {
+        "persona": "melchior",
+        "vote": "YES | NO | CONDITIONAL",
+        "reason": "技術的な評価理由..."
+      },
+      {
+        "persona": "balthasar",
+        "vote": "YES | NO | CONDITIONAL",
+        "reason": "安全性・リスク評価..."
+      },
+      {
+        "persona": "caspar",
+        "vote": "YES | NO | CONDITIONAL",
+        "reason": "実用性・速度評価..."
+      }
+    ],
+    "aggregate_reason": "集約された判断理由",
+    "suggested_actions": [
+      "推奨アクション1",
+      "推奨アクション2"
+    ]
+  }
+}
+```
+
+### ペルソナの役割
+
+- **Melchior (Gemini)**: 科学者。論理的整合性・技術的正確性・仕様との整合性を評価
+- **Balthasar (Claude)**: 安全性重視。セキュリティ・安定性・保守性・リスクを評価
+- **Caspar (Codex)**: 実用主義者。実用性・速度・「今動くこと」を評価
+
+### Criticalityレベル
+
+- `CRITICAL`: セキュリティ関連の変更など。BALTHASARがNOの場合は自動的にREJECTED
+- `NORMAL`: 通常の変更（デフォルト）
+- `LOW`: 低リスクの変更
+
+### 投票の集約ロジック
+
+- 重み付き投票: MELCHIOR=0.4, BALTHASAR=0.35, CASPAR=0.25
+- YES → +1 × 重み, NO → -1 × 重み, CONDITIONAL → +0.3 × 重み
+- 合計スコアとcriticalityに基づいて最終決定
 
 ## テスト
 

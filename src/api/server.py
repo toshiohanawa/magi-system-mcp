@@ -34,6 +34,7 @@ class StartRequest(BaseModel):
     skip_claude: bool = False
     fallback_policy: str | None = None
     verbose: bool | None = None
+    criticality: str | None = None  # "CRITICAL" | "NORMAL" | "LOW"
 
 
 class StartResponse(BaseModel):
@@ -42,6 +43,7 @@ class StartResponse(BaseModel):
     logs: list[Dict[str, Any]] | None = None
     summary: str | None = None
     timeline: list[str] | None = None
+    magi_decision: Dict[str, Any] | None = None  # MAGI consensus decision
 
 
 class StepRequest(BaseModel):
@@ -75,22 +77,36 @@ async def start_magi(req: StartRequest) -> StartResponse:
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"[DEBUG] start_magi called with verbose={req.verbose} (type: {type(req.verbose)})")
-    result = await controller.start_magi(
-        req.initial_prompt,
-        mode=req.mode,
-        skip_claude=req.skip_claude,
-        fallback_policy=req.fallback_policy,
-        verbose=req.verbose,
-    )
-    logger.info(f"[DEBUG] start_magi result: logs={result.get('logs')}, summary={result.get('summary')}, timeline={result.get('timeline')}")
-    serialized = {k: serialize_output(v) for k, v in result["results"].items()}
-    return StartResponse(
-        session_id=result["session_id"],
-        results=serialized,
-        logs=result.get("logs"),
-        summary=result.get("summary"),
-        timeline=result.get("timeline"),
-    )
+    try:
+        result = await controller.start_magi(
+            req.initial_prompt,
+            mode=req.mode,
+            skip_claude=req.skip_claude,
+            fallback_policy=req.fallback_policy,
+            verbose=req.verbose,
+            criticality=req.criticality,
+        )
+        logger.info(f"[DEBUG] start_magi result: logs={result.get('logs')}, summary={result.get('summary')}, timeline={result.get('timeline')}")
+        serialized = {k: serialize_output(v) for k, v in result.get("results", {}).items()}
+        return StartResponse(
+            session_id=result["session_id"],
+            results=serialized,
+            logs=result.get("logs"),
+            summary=result.get("summary"),
+            timeline=result.get("timeline"),
+            magi_decision=result.get("magi_decision"),
+        )
+    except ValueError as e:
+        # 入力検証エラーなど、ユーザーが修正可能なエラー
+        logger.warning(f"Input validation error: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}") from e
+    except Exception as e:
+        # 予期しないエラー
+        logger.exception(f"Unexpected error in start_magi: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}. Please check logs for details."
+        ) from e
 
 
 @app.post("/magi/step", response_model=StepResponse)

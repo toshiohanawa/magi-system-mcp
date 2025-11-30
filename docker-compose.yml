@@ -9,8 +9,8 @@ services:
     restart: unless-stopped
     user: "mcp"
     environment:
-      - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
-      - LLM_TIMEOUT=${LLM_TIMEOUT:-300}
+      - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-600}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-600}
       # デフォルトはホストラッパーを使用（USE_CONTAINER_WRAPPERS=1でコンテナ化ラッパーに切り替え）
       - CODEX_WRAPPER_URL=${CODEX_WRAPPER_URL:-http://host.docker.internal:9001}
       - CLAUDE_WRAPPER_URL=${CLAUDE_WRAPPER_URL:-http://host.docker.internal:9002}
@@ -33,7 +33,7 @@ services:
     user: "mcp"
     environment:
       - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
-      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-600}
       - CODEX_COMMAND=${CODEX_COMMAND:-codex exec --skip-git-repo-check}
 
   claude-wrapper:
@@ -48,7 +48,7 @@ services:
     user: "mcp"
     environment:
       - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
-      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-600}
       - CLAUDE_COMMAND=${CLAUDE_COMMAND:-claude generate}
 
   gemini-wrapper:
@@ -63,7 +63,7 @@ services:
     user: "mcp"
     environment:
       - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
-      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-600}
       - GEMINI_COMMAND=${GEMINI_COMMAND:-gemini generate}
 
   judge-wrapper:
@@ -78,5 +78,5 @@ services:
     user: "mcp"
     environment:
       - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
-      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-600}
       - JUDGE_COMMAND=${JUDGE_COMMAND:-judge generate}

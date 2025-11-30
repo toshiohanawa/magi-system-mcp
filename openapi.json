@@ -219,6 +219,17 @@
               }
             ],
             "title": "Verbose"
+          },
+          "criticality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Criticality"
           }
         },
         "type": "object",
@@ -278,6 +289,17 @@
               }
             ],
             "title": "Timeline"
+          },
+          "magi_decision": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Magi Decision"
           }
         },
         "type": "object",
