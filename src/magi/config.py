@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 
 
+DEFAULT_TIMEOUT = os.getenv("MAGI_TIMEOUT_DEFAULT") or os.getenv("LLM_TIMEOUT") or "300"
+
+
 def _split_cmd(value: str) -> List[str]:
     return shlex.split(value) if value else []
 
@@ -51,7 +54,8 @@ def _timeout_from_env(env_var: str, default: str = "120") -> float:
     """
     Resolve timeout seconds from env with a common fallback LLM_TIMEOUT.
     """
-    return float(os.getenv(env_var, os.getenv("LLM_TIMEOUT", default)))
+    base_default = default or DEFAULT_TIMEOUT
+    return float(os.getenv(env_var, os.getenv("LLM_TIMEOUT", base_default)))
 
 
 @dataclass
@@ -104,6 +108,8 @@ class AppConfig:
     claude: LLMConfig = field(default_factory=LLMConfig.for_claude)
     gemini: LLMConfig = field(default_factory=LLMConfig.for_gemini)
     judge: LLMConfig = field(default_factory=LLMConfig.for_judge)
+    fallback_policy: str = "lenient"
+    verbose_default: bool = False
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -122,6 +128,8 @@ class AppConfig:
                 claude=LLMConfig(**settings.get_claude_config()),
                 gemini=LLMConfig(**settings.get_gemini_config()),
                 judge=LLMConfig(**settings.get_judge_config()),
+                fallback_policy=settings.get_fallback_policy(),
+                verbose_default=settings.get_verbose_default(),
             )
         except ImportError:
             # pydantic-settingsがインストールされていない場合は既存の実装を使用

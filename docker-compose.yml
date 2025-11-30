@@ -9,6 +9,74 @@ services:
     restart: unless-stopped
     user: "mcp"
     environment:
-      - CODEX_TIMEOUT=300
-      - WRAPPER_TIMEOUT=300
-      - LLM_TIMEOUT=300
+      - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-300}
+      # デフォルトはホストラッパーを使用（USE_CONTAINER_WRAPPERS=1でコンテナ化ラッパーに切り替え）
+      - CODEX_WRAPPER_URL=${CODEX_WRAPPER_URL:-http://host.docker.internal:9001}
+      - CLAUDE_WRAPPER_URL=${CLAUDE_WRAPPER_URL:-http://host.docker.internal:9002}
+      - GEMINI_WRAPPER_URL=${GEMINI_WRAPPER_URL:-http://host.docker.internal:9003}
+      - JUDGE_WRAPPER_URL=${JUDGE_WRAPPER_URL:-http://host.docker.internal:9004}
+    # depends_onは削除（start_magi.shでUSE_CONTAINER_WRAPPERSに応じて制御）
+
+  # コンテナ化ラッパーサービス（USE_CONTAINER_WRAPPERS=1で有効化）
+  # デフォルトでは無効化されており、ホストラッパーが使用されます
+  # 注意: コンテナ内でCLIバイナリ（codex, claude, gemini, judge）が利用可能である必要があります
+  codex-wrapper:
+    build: .
+    container_name: magi-codex-wrapper
+    command: ["uvicorn", "host_wrappers.codex_wrapper:app", "--host", "0.0.0.0", "--port", "9001"]
+    ports:
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - .:/workspace:rw
+    restart: unless-stopped
+    user: "mcp"
+    environment:
+      - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - CODEX_COMMAND=${CODEX_COMMAND:-codex exec --skip-git-repo-check}
+
+  claude-wrapper:
+    build: .
+    container_name: magi-claude-wrapper
+    command: ["uvicorn", "host_wrappers.claude_wrapper:app", "--host", "0.0.0.0", "--port", "9002"]
+    ports:
+      - "127.0.0.1:9002:9002"
+    volumes:
+      - .:/workspace:rw
+    restart: unless-stopped
+    user: "mcp"
+    environment:
+      - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - CLAUDE_COMMAND=${CLAUDE_COMMAND:-claude generate}
+
+  gemini-wrapper:
+    build: .
+    container_name: magi-gemini-wrapper
+    command: ["uvicorn", "host_wrappers.gemini_wrapper:app", "--host", "0.0.0.0", "--port", "9003"]
+    ports:
+      - "127.0.0.1:9003:9003"
+    volumes:
+      - .:/workspace:rw
+    restart: unless-stopped
+    user: "mcp"
+    environment:
+      - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - GEMINI_COMMAND=${GEMINI_COMMAND:-gemini generate}
+
+  judge-wrapper:
+    build: .
+    container_name: magi-judge-wrapper
+    command: ["uvicorn", "host_wrappers.judge_wrapper:app", "--host", "0.0.0.0", "--port", "9004"]
+    ports:
+      - "127.0.0.1:9004:9004"
+    volumes:
+      - .:/workspace:rw
+    restart: unless-stopped
+    user: "mcp"
+    environment:
+      - MAGI_TIMEOUT_DEFAULT=${MAGI_TIMEOUT_DEFAULT:-300}
+      - WRAPPER_TIMEOUT=${WRAPPER_TIMEOUT:-300}
+      - JUDGE_COMMAND=${JUDGE_COMMAND:-judge generate}

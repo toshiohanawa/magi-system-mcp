@@ -21,7 +21,12 @@ def create_wrapper_app(command_env: str, default_cmd: str) -> FastAPI:
     import shlex
     command_str = os.getenv(command_env, default_cmd)
     command: List[str] = shlex.split(command_str)
-    timeout = float(os.getenv("WRAPPER_TIMEOUT", "120"))
+    timeout = float(
+        os.getenv(
+            "WRAPPER_TIMEOUT",
+            os.getenv("LLM_TIMEOUT", os.getenv("MAGI_TIMEOUT_DEFAULT", "300")),
+        )
+    )
 
     app = FastAPI(title=f"{command_env} wrapper", version="1.0.0")
 

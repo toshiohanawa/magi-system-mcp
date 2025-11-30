@@ -4,7 +4,15 @@
 
 **全LLMはCLI版のみ対応**（HTTP API/SDK呼び出しは全面禁止）
 
-**新構成**: ホスト側でCLIを実行するHTTPラッパー（FastAPI）を起動し、Dockerコンテナ内のブリッジはHTTP経由で接続します。これにより、macOS用バイナリの問題を回避できます。
+**構成**: デフォルトではホスト側でFastAPIラッパーを起動し、CLIバイナリ（codex, claude, gemini, judge）をホスト側で実行します。コンテナ内でCLIが利用可能な場合は `USE_CONTAINER_WRAPPERS=1 scripts/start_magi.sh` でコンテナ化ラッパーに切り替え可能です。
+
+## ドキュメントマップ
+- まずは本READMEの「クイックセットアップ」と「MCP設定」を確認。
+- **セットアップ関連**: `docs/setup/` - Cursor MCP設定、トラブルシューティング
+- **ユーザーガイド**: `docs/guides/` - Cursorでの使用方法、MCP HTTP実装計画
+- **開発者向け**: `docs/development/` - 既知課題、Phase1実装詳細
+- **アーカイブ**: `docs/archive/` - 過去のリファクタリングログ、デバッグ記録
+- すべてのドキュメントへのリンク一覧は `docs/INDEX.md` を参照。
 
 ## 処理フロー
 
@@ -37,10 +45,10 @@
 │                       │                                          │
 │  ┌────────────────────▼─────────────────────────────────────┐   │
 │  │  HTTP Clients (src/magi/clients/*.py)                    │   │
-│  │  - CodexClient → http://host.docker.internal:9001        │   │
-│  │  - ClaudeClient → http://host.docker.internal:9002       │   │
-│  │  - GeminiClient → http://host.docker.internal:9003       │   │
-│  │  - JudgeClient → http://host.docker.internal:9004        │   │
+│  │  - CodexClient → http://codex-wrapper:9001（ホストモード時はhost.docker.internal）│
+│  │  - ClaudeClient → http://claude-wrapper:9002（同上）      │   │
+│  │  - GeminiClient → http://gemini-wrapper:9003（同上）      │   │
+│  │  - JudgeClient → http://judge-wrapper:9004（同上）        │   │
 │  └────────────────────┬─────────────────────────────────────┘   │
 └────────────────────────┼──────────────────────────────────────────┘
                          │
@@ -48,7 +56,7 @@
                          │ host.docker.internal:9001-9004
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    ホスト側 HTTPラッパー                           │
+│                    HTTPラッパー (コンテナ/ホスト)                       │
 │              (FastAPI, ポート9001-9004)                           │
 │                                                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -118,24 +126,24 @@
 - `tests/test_integration.py`: 統合テスト（Phase 1）
 
 ## LLM CLI設定
-全LLMはホスト側のHTTPラッパー経由でCLIコマンドを実行します。環境変数で上書き可能です：
+全LLMはHTTPラッパー経由でCLIコマンドを実行します。デフォルトではホスト側のラッパーを使用し、環境変数で上書き可能です：
 - Codex: `CODEX_COMMAND` (デフォルト: `codex exec --skip-git-repo-check`)
 - Claude: `CLAUDE_COMMAND` (デフォルト: `claude generate`)
 - Gemini: `GEMINI_COMMAND` (デフォルト: `gemini generate` - Autoモード)
 - Judge: `JUDGE_COMMAND` (デフォルト: `judge generate`)
 
-各CLIは標準入力からプロンプトを受け取り、標準出力に結果を返します。タイムアウトはデフォルト300秒（5分、`WRAPPER_TIMEOUT` で変更可）、エラー時は型安全なエラーハンドリングで処理されます。
+各CLIは標準入力からプロンプトを受け取り、標準出力に結果を返します。タイムアウトはデフォルト300秒（5分）で、`MAGI_TIMEOUT_DEFAULT` を基準に全コンポーネントで共有できます。
 
-タイムアウト調整:
-- HTTPクライアント側: `LLM_TIMEOUT` または個別に `CODEX_TIMEOUT` / `CLAUDE_TIMEOUT` / `GEMINI_TIMEOUT` / `JUDGE_TIMEOUT`（デフォルト: 300秒）
-- ラッパー側: `WRAPPER_TIMEOUT`（FastAPI側でCLI実行を待つ上限、デフォルト: 300秒）
+タイムアウト調整（値を1カ所で揃える場合は `MAGI_TIMEOUT_DEFAULT` を設定）:
+- HTTPクライアント側: `LLM_TIMEOUT` または個別に `CODEX_TIMEOUT` / `CLAUDE_TIMEOUT` / `GEMINI_TIMEOUT` / `JUDGE_TIMEOUT`（デフォルト: `MAGI_TIMEOUT_DEFAULT` から継承）
+- ラッパー側: `WRAPPER_TIMEOUT`（FastAPI側でCLI実行を待つ上限、デフォルト: `MAGI_TIMEOUT_DEFAULT`）
 
 **Phase 1の改善点**:
 - エラーハンドリングの型安全性向上（`LLMSuccess`/`LLMFailure`）
 - pydantic-settingsによる設定管理（`.env`ファイル対応、バリデーション）
 - 構造化ロギング（JSON形式、コンテキスト情報の自動付与）
 
-HTTPラッパーのURLは環境変数で上書き可能です（デフォルト: `http://host.docker.internal:900{1-4}`）：
+HTTPラッパーのURLは環境変数で上書き可能です（デフォルト: ホストラッパーモードは `http://host.docker.internal:900{1-4}`、コンテナ化ラッパーモードは `http://<llm>-wrapper:900{1-4}`）：
 - `CODEX_WRAPPER_URL`, `CLAUDE_WRAPPER_URL`, `GEMINI_WRAPPER_URL`, `JUDGE_WRAPPER_URL`
 
 ### 動作確認
@@ -143,7 +151,13 @@ HTTPラッパーのURLは環境変数で上書き可能です（デフォルト:
 ホストラッパーとブリッジが正しく動作しているか確認します：
 
 ```bash
-# ヘルスチェックで確認
+# 1. ホストラッパーの起動状態を確認
+curl http://127.0.0.1:9001/health  # Codex
+curl http://127.0.0.1:9002/health  # Claude
+curl http://127.0.0.1:9003/health  # Gemini
+curl http://127.0.0.1:9004/health  # Judge
+
+# 2. MAGIシステムのヘルスチェック（ホストラッパーの状態も含む）
 curl http://127.0.0.1:8787/health
 ```
 
@@ -155,14 +169,60 @@ curl http://127.0.0.1:8787/health
     "codex": true,
     "claude": true,
     "gemini": true
+  },
+  "details": {
+    "codex": {
+      "available": true,
+      "type": "real",
+      "path": "http://host.docker.internal:9001",
+      "message": "wrapper available",
+      "wrapper_running": true,
+      "wrapper_message": "Host wrapper is running"
+    },
+    "claude": {
+      "available": true,
+      "type": "real",
+      "path": "http://host.docker.internal:9002",
+      "message": "wrapper available",
+      "wrapper_running": true,
+      "wrapper_message": "Host wrapper is running"
+    },
+    "gemini": {
+      "available": true,
+      "type": "real",
+      "path": "http://host.docker.internal:9003",
+      "message": "wrapper available",
+      "wrapper_running": true,
+      "wrapper_message": "Host wrapper is running"
+    }
   }
 }
 ```
 
-すべてのコマンドが `true` になっていれば、HTTPラッパーが正常に動作しています。
+**ホストラッパーが起動していない場合のレスポンス例:**
+```json
+{
+  "status": "degraded",
+  "commands": {
+    "codex": false,
+    "claude": false,
+    "gemini": false
+  },
+  "details": {
+    "codex": {
+      "available": false,
+      "type": "stub",
+      "wrapper_running": false,
+      "wrapper_message": "Host wrapper is not running at http://host.docker.internal:9001. Please start it with: bash scripts/start_host_wrappers.sh"
+    }
+  }
+}
+```
+
+すべてのコマンドが `true` で、`wrapper_running` が `true` になっていれば、HTTPラッパーが正常に動作しています。
 
 **注意**: 
-- ホストラッパーが起動していない場合、スタブ応答が返されます。
+- ホストラッパーが起動していない場合、`wrapper_running` が `false` になり、起動方法がメッセージに表示されます。
 - macOS用バイナリ（claude/gemini）もホスト側で実行されるため、問題なく動作します。
 
 ## 環境構築
@@ -172,7 +232,7 @@ curl http://127.0.0.1:8787/health
 環境構築スクリプトを実行します：
 
 ```bash
-bash setup_environment.sh
+bash scripts/setup_environment.sh
 ```
 
 このスクリプトは以下を自動的に実行します：
@@ -218,7 +278,18 @@ Docker Desktopがインストールされていることを確認してくださ
 
 ## 使い方
 
-### ホストラッパーの起動（推奨）
+### ラッパーの動作モード
+
+MAGIシステムは2つのモードで動作します：
+
+1. **ホストラッパーモード（デフォルト）**: ホスト側でラッパーを起動し、CLIバイナリ（codex, claude, gemini, judge）をホスト側で実行
+2. **コンテナ化ラッパーモード（オプション）**: Dockerコンテナ内でラッパーを起動（CLIバイナリがコンテナ内で利用可能な場合のみ）
+
+**デフォルトはホストラッパーモードです。** これは、CLIバイナリがホスト側にインストールされている必要があるためです。
+
+コンテナ化ラッパーを使用する場合は、`USE_CONTAINER_WRAPPERS=1`を設定してください。
+
+### ホストラッパーの起動
 
 #### 方法1: スクリプトを使用（推奨）
 
@@ -226,7 +297,16 @@ Docker Desktopがインストールされていることを確認してくださ
 bash scripts/start_host_wrappers.sh
 ```
 
-このスクリプトは4つのラッパーをバックグラウンドで起動します。
+このスクリプトは4つのラッパーをバックグラウンドで起動し、起動状態を確認します。
+
+**起動確認:**
+```bash
+# 各ラッパーのヘルスチェック
+curl http://127.0.0.1:9001/health  # Codex
+curl http://127.0.0.1:9002/health  # Claude
+curl http://127.0.0.1:9003/health  # Gemini
+curl http://127.0.0.1:9004/health  # Judge
+```
 
 停止するには：
 ```bash
@@ -246,11 +326,61 @@ bash scripts/stop_host_wrappers.sh
    CLIコマンドは環境変数 `CODEX_COMMAND` などで上書き可。
 
 ### MCPブリッジ（Docker）起動
-ホストラッパーを起動した状態で、ブリッジをDockerで立ち上げます：
+
+#### 方法1: 自動起動スクリプトを使用（推奨）
+
+**デフォルト（ホストラッパーモード）:**
 ```bash
-docker-compose up --build
+bash scripts/start_magi.sh
 ```
-コンテナ内のクライアントは `http://host.docker.internal:900{1-4}` にHTTPで接続します。
+
+このスクリプトは以下を自動的に実行します：
+1. ホストラッパーを起動（`scripts/start_host_wrappers.sh`）
+2. Dockerコンテナ（magi-mcpのみ）を起動（`docker-compose up -d --build --no-deps magi-mcp`）
+3. 起動状態を確認
+
+**コンテナ化ラッパーモード（オプション）:**
+```bash
+USE_CONTAINER_WRAPPERS=1 bash scripts/start_magi.sh
+```
+
+この場合、以下が実行されます：
+1. コンテナ化ラッパーサービス（codex-wrapper, claude-wrapper, gemini-wrapper, judge-wrapper）を起動
+2. Dockerコンテナ（全サービス）を起動
+3. 起動状態を確認
+
+**注意**: コンテナ化ラッパーモードを使用する場合、コンテナ内でCLIバイナリ（codex, claude, gemini, judge）が利用可能である必要があります。通常はホストラッパーモードを使用してください。
+
+停止するには：
+```bash
+bash scripts/stop_magi.sh
+```
+
+#### 方法2: 手動で起動
+
+**ホストラッパーモード（デフォルト）:**
+```bash
+# 1. ホストラッパーを起動
+bash scripts/start_host_wrappers.sh
+
+# 2. Dockerコンテナ（magi-mcpのみ）を起動
+docker-compose up -d --build --no-deps magi-mcp
+```
+
+**コンテナ化ラッパーモード:**
+```bash
+# 1. 全サービス（ラッパー含む）を起動
+USE_CONTAINER_WRAPPERS=1 docker-compose up -d --build
+```
+
+コンテナ内のクライアントは、モードに応じて以下のURLに接続します：
+- ホストラッパーモード: `http://host.docker.internal:900{1-4}`
+- コンテナ化ラッパーモード: `http://{llm}-wrapper:900{1-4}`
+
+**起動順序:**
+1. ラッパーを起動（ホストまたはコンテナ）
+2. Dockerコンテナ（magi-mcp）を起動
+3. CursorでMCPツールを使用
 
 ### スキーマ確認
 ```bash
@@ -258,7 +388,12 @@ curl http://127.0.0.1:8787/openapi.json
 ```
 
 ### MCP設定
-プロジェクトルートの `mcp.json` を使用（OpenAPI参照）。Cursor等のクライアントに読み込ませれば、起動中のサーバーに接続できます。
+**重要**: Cursorはプロジェクトルートの`mcp.json`を自動的に読み込みません。以下のいずれかの場所に設定ファイルを配置する必要があります：
+
+1. **プロジェクトローカル**: `.cursor/mcp.json`（推奨）
+2. **グローバル**: `~/Library/Application Support/Cursor/User/globalStorage/cursor.mcp.json` (Mac)
+
+詳細は「MCP設定方法（Cursor）」セクションを参照してください。
 
 ### 運用・トラブルシュート（LLM実行）
 - 接続先: Docker内からは `host.docker.internal`、ホストから直接走らせる場合は自動で `127.0.0.1` にフォールバック。必要なら `*_WRAPPER_URL` で固定。
@@ -288,6 +423,11 @@ curl http://127.0.0.1:8787/health
     "codex": true,
     "claude": true,
     "gemini": true
+  },
+  "details": {
+    "codex": { "available": true, "type": "real", "path": "http://host.docker.internal:9001", "message": "wrapper available" },
+    "claude": { "available": true, "type": "real", "path": "http://host.docker.internal:9002", "message": "wrapper available" },
+    "gemini": { "available": true, "type": "real", "path": "http://host.docker.internal:9003", "message": "wrapper available" }
   }
 }
 ```
@@ -310,9 +450,27 @@ curl http://127.0.0.1:8787/health
 
 ### Cursorでの設定手順
 
-#### 1. プロジェクトルートの`mcp.json`を使用（推奨）
+#### 1. プロジェクトローカル設定（推奨）
 
-プロジェクトルートに`mcp.json`が存在する場合、Cursorは自動的にこの設定を使用します（OpenAPI MCPツールとしてコンテナの `/openapi.json` を参照）：
+プロジェクトルートに`.cursor/mcp.json`を作成します：
+
+```bash
+mkdir -p .cursor
+cat > .cursor/mcp.json << 'EOF'
+{
+  "version": "1.0",
+  "tools": {
+    "magi": {
+      "type": "openapi",
+      "server": { "url": "http://127.0.0.1:8787" },
+      "schema": "http://127.0.0.1:8787/openapi.json"
+    }
+  }
+}
+EOF
+```
+
+**注意**: プロジェクトルートの`mcp.json`はCursorが自動的に読み込みません。`.cursor/mcp.json`を使用してください。
 
 ```json
 {
@@ -329,7 +487,12 @@ curl http://127.0.0.1:8787/health
 
 #### 2. グローバル設定に追加（オプション）
 
-`~/.cursor/mcp.json` に追加する場合も同じ形式で `tools.magi` を追加します：
+グローバル設定ファイル（Mac: `~/Library/Application Support/Cursor/User/globalStorage/cursor.mcp.json`）に追加する場合も同じ形式で `tools.magi` を追加します：
+
+**注意**: グローバル設定の場所はOSによって異なります：
+- Mac: `~/Library/Application Support/Cursor/User/globalStorage/cursor.mcp.json`
+- Windows: `%APPDATA%\Cursor\User\globalStorage\cursor.mcp.json`
+- Linux: `~/.config/Cursor/User/globalStorage/cursor.mcp.json`
 
 ```json
 {
@@ -362,6 +525,47 @@ Cursorのチャットで、MCPサーバーが利用可能か確認します：
 
 ### トラブルシューティング
 
+#### 問題: "All connection attempts failed" エラー
+
+このエラーは、ホストラッパーが起動していない場合に発生します。
+
+**解決方法:**
+1. ホストラッパーが起動しているか確認
+   ```bash
+   # プロセス確認
+   ps aux | grep uvicorn | grep host_wrappers
+   
+   # ポート確認
+   lsof -i :9001 -i :9002 -i :9003 -i :9004
+   ```
+
+2. ホストラッパーを起動
+   ```bash
+   bash scripts/start_host_wrappers.sh
+   ```
+
+3. 起動状態を確認
+   ```bash
+   # 各ラッパーのヘルスチェック
+   curl http://127.0.0.1:9001/health
+   curl http://127.0.0.1:9002/health
+   curl http://127.0.0.1:9003/health
+   curl http://127.0.0.1:9004/health
+   ```
+
+4. ログを確認（起動に失敗している場合）
+   ```bash
+   cat /tmp/codex_wrapper.log
+   cat /tmp/claude_wrapper.log
+   cat /tmp/gemini_wrapper.log
+   ```
+
+5. MAGIシステムのヘルスチェックで詳細を確認
+   ```bash
+   curl http://127.0.0.1:8787/health
+   ```
+   レスポンスの`details`フィールドに、各ホストラッパーの起動状態が表示されます。
+
 #### 問題: MCPツールが表示されない
 1. Dockerコンテナが起動しているか確認
    ```bash
@@ -386,14 +590,56 @@ Cursorのチャットで、MCPサーバーが利用可能か確認します：
 - Dockerコンテナが`127.0.0.1:8787`でリッスンしているか確認
 - ファイアウォール設定を確認
 - ポート8787が他のプロセスで使用されていないか確認
+- **ホストラッパーが起動しているか確認（必須）**
+
+### Cursorチャットでの使い方
+
+Cursorのチャット欄では、自然言語で指示を出すだけでMAGIシステムを使用できます。Cursorが自動的に適切なMCPツールを呼び出します。
+
+#### 基本的な使い方
+
+**例1: シンプルなリクエスト**
+```
+このコードをリファクタリングする提案を3つのLLMで比較して
+```
+
+**例2: 詳細な実行ログを確認したい場合**
+```
+MAGIシステムを使って、このリポジトリのコードをリファクタリングする提案を検討して。verboseモードで実行して、各LLMの出力を確認したい
+```
+
+**例3: 特定のLLMをスキップしたい場合**
+```
+Claudeをスキップして、CodexとGeminiだけで提案を比較して
+```
+
+**例4: 厳格なフォールバックポリシーで実行**
+```
+strictポリシーで実行して、最初のLLMが失敗したら停止して
+```
+
+#### ツールを明示的に指定する場合
+
+Cursorが自動的にツールを選択しますが、明示的に指定することもできます：
+
+- `@start_magi_magi_start_post` を選択して、Proposal Battleを開始
+- `@health_health_get` を選択して、システムの状態を確認
 
 ### 利用可能なエンドポイント
 
 MCPツールとして利用可能なエンドポイント：
 
 1. **`POST /magi/start`** - Proposal Battleを開始
-   - リクエスト: `{"initial_prompt": "your prompt", "mode": "proposal_battle"}`
-   - レスポンス: `{"session_id": "...", "results": {...}}`
+   - リクエスト例: `{"initial_prompt": "your prompt", "mode": "proposal_battle", "fallback_policy": "lenient|strict", "verbose": true}`
+   - レスポンス例: `{"session_id": "...", "results": {...}, "logs": [...], "summary": "codex(ok) -> claude(ok) -> gemini(ok)", "timeline": ["[start] codex (...)", "[codex] ok (...)", "..."]}`
+   - オプション:
+     - `fallback_policy`:
+       - `lenient` (デフォルト): LLM失敗時もスタブで続行し3案を揃える
+       - `strict`: 最初に失敗したLLM以降は実行せず、`status: "skipped"` で返す
+     - `verbose`:
+       - `true` で実行経路ログ `logs`、短い `summary`、人間可読な進行表示 `timeline` を返す（CursorチャットでSequential thinking表示を再現）
+       - 未指定の場合は環境変数 `MAGI_VERBOSE_DEFAULT` が `true/1/on` なら有効化（デフォルトは false）
+   - 各`results.*.metadata`には`status/duration_ms/source/trace_id`など実行情報が含まれる
 
 2. **`POST /magi/step`** - 採択案を取得
    - リクエスト: `{"session_id": "...", "decision": "codex|claude|gemini|judge"}`
@@ -446,4 +692,4 @@ pytest -m "not integration"
 - コンテキスト情報（session_id, trace_id, model等）の自動付与
 - 標準出力とファイル出力の両方に対応
 
-詳細は `PHASE1_IMPLEMENTATION.md` を参照してください。
+詳細は `docs/PHASE1_IMPLEMENTATION.md` を参照してください。

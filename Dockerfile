@@ -12,7 +12,8 @@ COPY requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src /workspace/src
-COPY mcp.json /workspace/mcp.json
+COPY host_wrappers /workspace/host_wrappers
+COPY scripts /workspace/scripts
 COPY openapi.json /workspace/openapi.json
 
 USER mcp

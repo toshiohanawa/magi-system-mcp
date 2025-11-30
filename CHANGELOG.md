@@ -77,7 +77,7 @@
 - `src/magi/settings.py`: pydantic-settingsベースの設定管理
 - `src/magi/logging_config.py`: 構造化ロギングシステム
 - `tests/test_integration.py`: 統合テスト
-- `PHASE1_IMPLEMENTATION.md`: Phase 1の実装レポート
+- `docs/PHASE1_IMPLEMENTATION.md`: Phase 1の実装レポート
 - `CHANGELOG.md`: このファイル
 
 #### 更新ファイル
@@ -88,7 +88,7 @@
 - `src/api/server.py`: ロギング設定を初期化
 - `tests/conftest.py`: カスタムマーカーを追加
 - `README.md`: Phase 1の実装内容を追加
-- `ISSUES.md`: Phase 1での改善を反映
+- `docs/ISSUES.md`: Phase 1での改善を反映
 
 ### テスト結果
 
@@ -103,4 +103,3 @@
 - Dockerブリッジとホスト側HTTPラッパーの実装
 - MCPサーバーとしての動作
 - 基本的なエラーハンドリングとスタブ応答
-

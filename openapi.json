@@ -165,12 +165,20 @@
             },
             "type": "object",
             "title": "Commands"
+          },
+          "details": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Details"
           }
         },
         "type": "object",
         "required": [
           "status",
-          "commands"
+          "commands",
+          "details"
         ],
         "title": "HealthResponse"
       },
@@ -189,6 +197,28 @@
             "type": "boolean",
             "title": "Skip Claude",
             "default": false
+          },
+          "fallback_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Policy"
+          },
+          "verbose": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbose"
           }
         },
         "type": "object",
@@ -209,6 +239,45 @@
             },
             "type": "object",
             "title": "Results"
+          },
+          "logs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logs"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "timeline": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeline"
           }
         },
         "type": "object",

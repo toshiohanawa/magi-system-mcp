@@ -14,6 +14,7 @@ class LLMSuccess:
     content: str
     duration_ms: float
     source: str  # wrapper url or cli command
+    trace_id: str
     metadata: Dict[str, str] = field(default_factory=dict)
 
     def to_model_output(self) -> "ModelOutput":
@@ -27,6 +28,7 @@ class LLMSuccess:
                 "cli_type": "real",
                 "duration_ms": str(self.duration_ms),
                 "source": self.source,
+                "trace_id": self.trace_id,
             },
         )
 
@@ -39,6 +41,7 @@ class LLMFailure:
     error_message: str
     duration_ms: float
     source: str  # wrapper url or cli command
+    trace_id: str
     fallback_content: Optional[str] = None  # Stub content if available
 
     def to_model_output(self) -> "ModelOutput":
@@ -54,6 +57,7 @@ class LLMFailure:
                 "error": self.error_message,
                 "duration_ms": str(self.duration_ms),
                 "source": self.source,
+                "trace_id": self.trace_id,
             },
         )
 

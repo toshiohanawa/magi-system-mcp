@@ -1,0 +1,62 @@
+{
+  "request": {
+    "initial_prompt": "テストプロンプト",
+    "mode": "proposal_battle",
+    "verbose": true
+  },
+  "response": {
+    "session_id": "a2451488-ec58-456b-8f38-4788b19adde3",
+    "results": {
+      "codex": {
+        "model": "codex",
+        "content": "...",
+        "metadata": {
+          "status": "ok",
+          "cli_type": "real",
+          "cli_path": "http://host.docker.internal:9001",
+          "trace_id": null
+        }
+      },
+      "claude": {
+        "model": "claude",
+        "content": "...",
+        "metadata": {
+          "status": "error",
+          "cli_type": "real",
+          "cli_path": "http://host.docker.internal:9002"
+        }
+      },
+      "gemini": {
+        "model": "gemini",
+        "content": "...",
+        "metadata": {
+          "status": "ok",
+          "cli_type": "real",
+          "cli_path": "http://host.docker.internal:9003"
+        }
+      }
+    },
+    "logs": null,
+    "summary": null,
+    "timeline": null
+  },
+  "issue": {
+    "description": "verbose: trueをリクエストに含めているにもかかわらず、レスポンスでlogs、summary、timelineがnullになっている",
+    "expected": {
+      "logs": "配列（各LLM呼び出しのログエントリ）",
+      "summary": "文字列（実行サマリー）",
+      "timeline": "配列（人間可読な進行表示）"
+    },
+    "actual": {
+      "logs": null,
+      "summary": null,
+      "timeline": null
+    }
+  },
+  "debug_files": {
+    "request": "/tmp/debug_request.json",
+    "response_full": "/tmp/debug_response_full.json",
+    "response_complete": "/tmp/debug_response_complete.json"
+  }
+}
+

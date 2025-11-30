@@ -32,11 +32,16 @@ class StartRequest(BaseModel):
     initial_prompt: str
     mode: str = "proposal_battle"
     skip_claude: bool = False
+    fallback_policy: str | None = None
+    verbose: bool | None = None
 
 
 class StartResponse(BaseModel):
     session_id: str
     results: Dict[str, Dict[str, Any]]
+    logs: list[Dict[str, Any]] | None = None
+    summary: str | None = None
+    timeline: list[str] | None = None
 
 
 class StepRequest(BaseModel):
@@ -62,13 +67,30 @@ class StopResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     commands: Dict[str, bool]
+    details: Dict[str, Dict[str, Any]]
 
 
 @app.post("/magi/start", response_model=StartResponse)
 async def start_magi(req: StartRequest) -> StartResponse:
-    result = await controller.start_magi(req.initial_prompt, mode=req.mode, skip_claude=req.skip_claude)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[DEBUG] start_magi called with verbose={req.verbose} (type: {type(req.verbose)})")
+    result = await controller.start_magi(
+        req.initial_prompt,
+        mode=req.mode,
+        skip_claude=req.skip_claude,
+        fallback_policy=req.fallback_policy,
+        verbose=req.verbose,
+    )
+    logger.info(f"[DEBUG] start_magi result: logs={result.get('logs')}, summary={result.get('summary')}, timeline={result.get('timeline')}")
     serialized = {k: serialize_output(v) for k, v in result["results"].items()}
-    return StartResponse(session_id=result["session_id"], results=serialized)
+    return StartResponse(
+        session_id=result["session_id"],
+        results=serialized,
+        logs=result.get("logs"),
+        summary=result.get("summary"),
+        timeline=result.get("timeline"),
+    )
 
 
 @app.post("/magi/step", response_model=StepResponse)
@@ -88,14 +110,64 @@ async def stop_magi(req: StopRequest) -> StopResponse:
 
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
+    import httpx
+    import logging
+    
+    logger = logging.getLogger(__name__)
     status_dict = await controller.get_cli_status()
+    
+    # ホストラッパーの起動状態を詳細にチェック
+    wrapper_urls = {
+        "codex": "http://127.0.0.1:9001",
+        "claude": "http://127.0.0.1:9002",
+        "gemini": "http://127.0.0.1:9003",
+    }
+    
+    # Dockerコンテナ内からはhost.docker.internalを使用
+    import os
+    if os.path.exists("/.dockerenv"):
+        wrapper_urls = {
+            "codex": "http://host.docker.internal:9001",
+            "claude": "http://host.docker.internal:9002",
+            "gemini": "http://host.docker.internal:9003",
+        }
+    
+    # 各ホストラッパーの起動状態をチェック
+    for name, url in wrapper_urls.items():
+        if name in status_dict:
+            status_info = status_dict[name]
+            # 既存の情報に起動状態を追加
+            if status_info.get("type") == "stub" or not status_info.get("available", False):
+                # 直接接続を試みて起動状態を確認
+                try:
+                    async with httpx.AsyncClient(timeout=2.0) as client:
+                        resp = await client.get(f"{url}/health")
+                        if resp.status_code == 200:
+                            status_dict[name]["wrapper_running"] = True
+                            status_dict[name]["wrapper_message"] = "Host wrapper is running"
+                        else:
+                            status_dict[name]["wrapper_running"] = False
+                            status_dict[name]["wrapper_message"] = f"Host wrapper returned status {resp.status_code}"
+                except httpx.ConnectError:
+                    status_dict[name]["wrapper_running"] = False
+                    status_dict[name]["wrapper_message"] = f"Host wrapper is not running at {url}. Please start it with: bash scripts/start_host_wrappers.sh"
+                except httpx.TimeoutException:
+                    status_dict[name]["wrapper_running"] = False
+                    status_dict[name]["wrapper_message"] = f"Host wrapper connection timeout at {url}"
+                except Exception as exc:
+                    status_dict[name]["wrapper_running"] = False
+                    status_dict[name]["wrapper_message"] = f"Error checking host wrapper: {str(exc)}"
+            else:
+                status_dict[name]["wrapper_running"] = True
+                status_dict[name]["wrapper_message"] = "Host wrapper is available"
+    
     command_status = {
-        "codex": status_dict["codex"].get("available", False),
-        "claude": status_dict["claude"].get("available", False),
-        "gemini": status_dict["gemini"].get("available", False),
+        "codex": status_dict["codex"].get("available", False) and status_dict["codex"].get("wrapper_running", False),
+        "claude": status_dict["claude"].get("available", False) and status_dict["claude"].get("wrapper_running", False),
+        "gemini": status_dict["gemini"].get("available", False) and status_dict["gemini"].get("wrapper_running", False),
     }
     overall = "ok" if all(command_status.values()) else "degraded"
-    return HealthResponse(status=overall, commands=command_status)
+    return HealthResponse(status=overall, commands=command_status, details=status_dict)
 
 
 def serialize_output(output: ModelOutput) -> Dict[str, Any]:

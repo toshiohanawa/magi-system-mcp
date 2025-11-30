@@ -4,14 +4,17 @@ import abc
 import asyncio
 import httpx
 import logging
+import os
 import time
 from typing import Optional, Dict, List
+import uuid
 
 from magi.config import command_available
 from magi.models import ModelOutput, LLMResult, LLMSuccess, LLMFailure
 
 
 logger = logging.getLogger(__name__)
+DEFAULT_TIMEOUT = float(os.getenv("MAGI_TIMEOUT_DEFAULT", os.getenv("LLM_TIMEOUT", "300")))
 
 
 class BaseLLMClient(abc.ABC):
@@ -20,7 +23,7 @@ class BaseLLMClient(abc.ABC):
         model_name: str,
         base_url: Optional[str] = None,
         cli_command: Optional[List[str]] = None,
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
         self.model_name = model_name
         self.base_url = base_url
@@ -53,6 +56,7 @@ class BaseLLMClient(abc.ABC):
             LLMFailure: 失敗時
         """
         start_time = time.perf_counter()
+        current_trace = trace_id or str(uuid.uuid4())
         url = self._build_url()
         source = url or self._cli_path() or "unknown"
         
@@ -64,6 +68,7 @@ class BaseLLMClient(abc.ABC):
                 error_message="wrapper url not configured",
                 duration_ms=duration_ms,
                 source=source,
+                trace_id=current_trace,
                 fallback_content=f"Stub response for {self.model_name}: {prompt[:200]}",
             )
         
@@ -85,13 +90,15 @@ class BaseLLMClient(abc.ABC):
                     content=content,
                     duration_ms=duration_ms,
                     source=url,
+                    trace_id=current_trace,
                     metadata=metadata,
                 )
         except httpx.TimeoutException as exc:
             duration_ms = (time.perf_counter() - start_time) * 1000
             detail = str(exc)
             logger.error(
-                "Timeout from %s wrapper at %s: %s",
+                "Timeout from %s wrapper at %s: %s. "
+                "If host wrapper is not running, start it with: bash scripts/start_host_wrappers.sh",
                 self.model_name,
                 url,
                 detail,
@@ -99,9 +106,10 @@ class BaseLLMClient(abc.ABC):
             return LLMFailure(
                 model=self.model_name,
                 error_type="timeout",
-                error_message=f"Request timeout after {self.timeout}s: {detail}",
+                error_message=f"Request timeout after {self.timeout}s: {detail}. If host wrapper is not running, start it with: bash scripts/start_host_wrappers.sh",
                 duration_ms=duration_ms,
                 source=url,
+                trace_id=current_trace,
                 fallback_content=f"Stub response for {self.model_name} (timeout): {prompt[:200]}",
             )
         except httpx.HTTPStatusError as exc:
@@ -115,23 +123,47 @@ class BaseLLMClient(abc.ABC):
                 detail.strip()[:500],
             )
             error_msg = f"HTTP {exc.response.status_code if exc.response else 'error'}: {detail.strip() or exc}"
+            # 503や502エラーの場合、ホストラッパーが起動していない可能性がある
+            if exc.response and exc.response.status_code in (502, 503, 504):
+                error_msg += ". Host wrapper may not be running. Start with: bash scripts/start_host_wrappers.sh"
             return LLMFailure(
                 model=self.model_name,
                 error_type="http_error",
                 error_message=error_msg,
                 duration_ms=duration_ms,
                 source=url,
+                trace_id=current_trace,
                 fallback_content=f"Stub response for {self.model_name} ({error_msg}): {prompt[:200]}",
             )
         except Exception as exc:  # noqa: BLE001
             duration_ms = (time.perf_counter() - start_time) * 1000
-            logger.exception("Failed to call %s wrapper at %s", self.model_name, url)
+            error_msg = str(exc)
+            
+            # 接続エラーの場合、ホストラッパーの起動状態を確認するよう促す
+            if "connection" in error_msg.lower() or "connect" in error_msg.lower() or "refused" in error_msg.lower():
+                enhanced_msg = (
+                    f"{error_msg}. "
+                    f"Host wrapper may not be running. "
+                    f"Please start it with: bash scripts/start_host_wrappers.sh"
+                )
+                logger.error(
+                    "Connection failed to %s wrapper at %s: %s. "
+                    "Host wrapper may not be running. Start with: bash scripts/start_host_wrappers.sh",
+                    self.model_name,
+                    url,
+                    error_msg,
+                )
+            else:
+                enhanced_msg = error_msg
+                logger.exception("Failed to call %s wrapper at %s", self.model_name, url)
+            
             return LLMFailure(
                 model=self.model_name,
                 error_type="exception",
-                error_message=str(exc),
+                error_message=enhanced_msg,
                 duration_ms=duration_ms,
                 source=url,
+                trace_id=current_trace,
                 fallback_content=f"Stub response for {self.model_name} (exception): {prompt[:200]}",
             )
 

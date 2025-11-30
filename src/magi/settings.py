@@ -13,7 +13,15 @@ from typing import Optional, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
-from magi.config import _preferred_wrapper_host, _split_cmd, _default_wrapper_url, _timeout_from_env
+from magi.config import (
+    _preferred_wrapper_host,
+    _split_cmd,
+    _default_wrapper_url,
+    _timeout_from_env,
+    DEFAULT_TIMEOUT,
+)
+
+_ALLOWED_POLICIES = {"strict", "lenient"}
 
 
 class LLMClientSettings(BaseSettings):
@@ -34,33 +42,35 @@ class Settings(BaseSettings):
     codex_url: str = Field(
         default_factory=lambda: f"http://{_preferred_wrapper_host()}:9001"
     )
-    codex_timeout: float = Field(default=300.0, description="Codexタイムアウト（秒）")
+    codex_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="Codexタイムアウト（秒）")
     codex_command: str = Field(default="codex exec --skip-git-repo-check")
     
     # Claude設定
     claude_url: str = Field(
         default_factory=lambda: f"http://{_preferred_wrapper_host()}:9002"
     )
-    claude_timeout: float = Field(default=300.0, description="Claudeタイムアウト（秒）")
+    claude_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="Claudeタイムアウト（秒）")
     claude_command: str = Field(default="claude generate")
     
     # Gemini設定
     gemini_url: str = Field(
         default_factory=lambda: f"http://{_preferred_wrapper_host()}:9003"
     )
-    gemini_timeout: float = Field(default=300.0, description="Geminiタイムアウト（秒）")
+    gemini_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="Geminiタイムアウト（秒）")
     gemini_command: str = Field(default="gemini generate")
     
     # Judge設定
     judge_url: str = Field(
         default_factory=lambda: f"http://{_preferred_wrapper_host()}:9004"
     )
-    judge_timeout: float = Field(default=300.0, description="Judgeタイムアウト（秒）")
+    judge_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="Judgeタイムアウト（秒）")
     judge_command: str = Field(default="judge generate")
     
     # 共通設定
-    llm_timeout: float = Field(default=300.0, description="全LLMのデフォルトタイムアウト（秒）")
-    wrapper_timeout: float = Field(default=300.0, description="ラッパーのタイムアウト（秒）")
+    llm_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="全LLMのデフォルトタイムアウト（秒）")
+    wrapper_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="ラッパーのタイムアウト（秒）")
+    fallback_policy: str = Field(default="lenient", description="LLM失敗時のフォールバックポリシー (lenient|strict)")
+    verbose_default: bool = Field(default=False, description="verboseレスポンスをデフォルトで有効にするか (MAGI_VERBOSE_DEFAULT)")
     
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -136,8 +146,23 @@ class Settings(BaseSettings):
             "timeout": timeout_val,
         }
     
+    def get_fallback_policy(self) -> str:
+        """フォールバックポリシー（strict/lenient）を取得"""
+        env_value = os.getenv("MAGI_FALLBACK_POLICY", self.fallback_policy)
+        normalized = env_value.strip().lower()
+        if normalized not in _ALLOWED_POLICIES:
+            return "lenient"
+        return normalized
+
+    def get_verbose_default(self) -> bool:
+        """verboseをデフォルトで有効にするか"""
+        env_value = os.getenv("MAGI_VERBOSE_DEFAULT")
+        if env_value is None:
+            return bool(self.verbose_default)
+        # accept truthy strings
+        return env_value.strip().lower() in {"1", "true", "yes", "on"}
+    
     @classmethod
     def from_env(cls) -> "Settings":
         """環境変数から設定を読み込む（後方互換性のため）"""
         return cls()
-
