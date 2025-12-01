@@ -18,12 +18,12 @@ Cursorはプロジェクトルートの`mcp.json`を自動的に読み込みま�
 mkdir -p .cursor
 cat > .cursor/mcp.json << 'EOF'
 {
-  "version": "1.0",
-  "tools": {
-    "magi": {
-      "type": "openapi",
-      "server": { "url": "http://127.0.0.1:8787" },
-      "schema": "http://127.0.0.1:8787/openapi.json"
+  "magi": {
+    "command": "npx",
+    "args": ["-y", "@ivotoby/openapi-mcp-server"],
+    "env": {
+      "API_BASE_URL": "http://127.0.0.1:8787",
+      "OPENAPI_SPEC_PATH": "http://127.0.0.1:8787/openapi.json"
     }
   }
 }
@@ -34,10 +34,11 @@ EOF
 
 #### 方法2: グローバル設定
 
-グローバル設定ファイルに追加する場合：
+すべてのプロジェクトでMAGIシステムを使用する場合は、グローバル設定に追加します。
 
+**macOSの場合:**
 ```bash
-# Macの場合
+# グローバル設定ファイルのパス
 GLOBAL_MCP="$HOME/Library/Application Support/Cursor/User/globalStorage/cursor.mcp.json"
 
 # 既存の設定がある場合はバックアップ
@@ -45,7 +46,7 @@ if [ -f "$GLOBAL_MCP" ]; then
   cp "$GLOBAL_MCP" "${GLOBAL_MCP}.bak"
 fi
 
-# magi設定を追加（既存のtoolsブロックに追加）
+# 既存の設定を読み込んでmagiを追加
 python3 << 'PYTHON_SCRIPT'
 import json
 import os
@@ -58,21 +59,16 @@ if config_file.exists():
     with open(config_file, 'r') as f:
         config = json.load(f)
 else:
-    config = {"version": "1.0", "tools": {}}
-
-# versionが存在しない場合は追加
-if 'version' not in config:
-    config['version'] = '1.0'
-
-# toolsが存在しない場合は作成
-if 'tools' not in config:
-    config['tools'] = {}
+    config = {}
 
 # magiを追加/更新
-config['tools']['magi'] = {
-    "type": "openapi",
-    "server": { "url": "http://127.0.0.1:8787" },
-    "schema": "http://127.0.0.1:8787/openapi.json"
+config['magi'] = {
+    "command": "npx",
+    "args": ["-y", "@ivotoby/openapi-mcp-server"],
+    "env": {
+        "API_BASE_URL": "http://127.0.0.1:8787",
+        "OPENAPI_SPEC_PATH": "http://127.0.0.1:8787/openapi.json"
+    }
 }
 
 # 設定を保存
@@ -80,9 +76,23 @@ config_file.parent.mkdir(parents=True, exist_ok=True)
 with open(config_file, 'w') as f:
     json.dump(config, f, indent=2)
 
-print("✅ magiをtoolsセクションに追加しました")
+print("✅ magi設定を追加しました")
 PYTHON_SCRIPT
 ```
+
+**Linuxの場合:**
+```bash
+GLOBAL_MCP="$HOME/.config/Cursor/User/globalStorage/cursor.mcp.json"
+# 以下、macOSと同様の手順（パスのみ変更）
+```
+
+**Windowsの場合:**
+```bash
+GLOBAL_MCP="$APPDATA\Cursor\User\globalStorage\cursor.mcp.json"
+# 以下、macOSと同様の手順（パスのみ変更）
+```
+
+> **注意**: グローバル設定ファイルが既に存在する場合は、JSON形式を維持するため、手動で編集するか、上記のPythonスクリプトを使用して既存の設定に`magi`エントリを追加してください。
 
 その後、**Cursorを完全に再起動**してください。
 
@@ -130,7 +140,7 @@ OpenAPIツールは自動生成された名前で表示されます：
 - ✅ サーバーが起動しているか確認
 - ✅ 設定ファイルが正しい場所にあるか確認
 - ✅ Cursorを完全に再起動したか確認
-- ✅ `mcpServers`ブロックが残っていないか確認（`tools`ブロックのみを使用）
+- ✅ 設定形式が正しいか確認（`tools`ブロックではなく、直接サーバー名をキーとして設定）
 
 #### 問題2: スキーマ取得エラー
 - ✅ `curl http://127.0.0.1:8787/openapi.json`で確認
@@ -143,6 +153,10 @@ OpenAPIツールは自動生成された名前で表示されます：
 
 ### 注意事項
 
-- **`mcpServers`ブロックは使用しない**: 旧形式の`mcpServers`が残っているとツール解決が混乱します。`tools`ブロックのみを使用してください。
+- **設定形式**: `tools`ブロックではなく、直接サーバー名（`magi`）をキーとして設定します。`command`、`args`、`env`を使用します。
 - **プロジェクトルートの`mcp.json`は無視される**: Cursorはこのファイルを自動的に読み込みません。`.cursor/mcp.json`またはグローバル設定を使用してください。
+- **グローバル設定の場所**:
+  - macOS: `~/Library/Application Support/Cursor/User/globalStorage/cursor.mcp.json`
+  - Linux: `~/.config/Cursor/User/globalStorage/cursor.mcp.json`
+  - Windows: `%APPDATA%\Cursor\User\globalStorage\cursor.mcp.json`
 

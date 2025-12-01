@@ -37,25 +37,70 @@ bash scripts/start_magi.sh
 
 ### 3. MCP設定
 
+#### 方法1: プロジェクトローカル設定（推奨）
+
 プロジェクトルートに`.cursor/mcp.json`を作成：
 
 ```bash
 mkdir -p .cursor
 cat > .cursor/mcp.json << 'EOF'
 {
-  "version": "1.0",
-  "tools": {
-    "magi": {
-      "type": "openapi",
-      "server": { "url": "http://127.0.0.1:8787" },
-      "schema": "http://127.0.0.1:8787/openapi.json"
+  "magi": {
+    "command": "npx",
+    "args": ["-y", "@ivotoby/openapi-mcp-server"],
+    "env": {
+      "API_BASE_URL": "http://127.0.0.1:8787",
+      "OPENAPI_SPEC_PATH": "http://127.0.0.1:8787/openapi.json"
     }
   }
 }
 EOF
 ```
 
-Cursorを再起動して設定を反映させます。
+#### 方法2: グローバル設定
+
+すべてのプロジェクトでMAGIシステムを使用する場合は、グローバル設定に追加します：
+
+**macOSの場合:**
+```bash
+# グローバル設定ファイルのパス
+GLOBAL_MCP="$HOME/Library/Application Support/Cursor/User/globalStorage/cursor.mcp.json"
+
+# 既存の設定がある場合はバックアップ
+if [ -f "$GLOBAL_MCP" ]; then
+  cp "$GLOBAL_MCP" "${GLOBAL_MCP}.bak"
+fi
+
+# magi設定を追加
+cat >> "$GLOBAL_MCP" << 'EOF'
+{
+  "magi": {
+    "command": "npx",
+    "args": ["-y", "@ivotoby/openapi-mcp-server"],
+    "env": {
+      "API_BASE_URL": "http://127.0.0.1:8787",
+      "OPENAPI_SPEC_PATH": "http://127.0.0.1:8787/openapi.json"
+    }
+  }
+}
+EOF
+```
+
+**Linuxの場合:**
+```bash
+GLOBAL_MCP="$HOME/.config/Cursor/User/globalStorage/cursor.mcp.json"
+# 以下、macOSと同様の手順
+```
+
+**Windowsの場合:**
+```bash
+GLOBAL_MCP="$APPDATA\Cursor\User\globalStorage\cursor.mcp.json"
+# 以下、macOSと同様の手順
+```
+
+> **注意**: グローバル設定ファイルが既に存在する場合は、JSON形式を維持するため、手動で編集するか、既存の設定に`magi`エントリを追加してください。
+
+Cursorを完全に再起動して設定を反映させます。
 
 ### 4. 動作確認
 
