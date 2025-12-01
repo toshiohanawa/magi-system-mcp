@@ -175,7 +175,7 @@ class MAGIController:
             weights=weights,
             conditional_weight=conditional_weight,
         )
-        return await engine.evaluate(proposal, criticality, session_id, trace_id, verbose)
+        return await engine.evaluate(proposal, criticality, persona_overrides=None, session_id=session_id, trace_id=trace_id, verbose=verbose)
 
     def _serialize_magi_decision(self, decision: MagiDecision) -> Dict:
         """

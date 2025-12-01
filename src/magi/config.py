@@ -109,7 +109,7 @@ class AppConfig:
     gemini: LLMConfig = field(default_factory=LLMConfig.for_gemini)
     judge: LLMConfig = field(default_factory=LLMConfig.for_judge)
     fallback_policy: str = "lenient"
-    verbose_default: bool = False
+    verbose_default: bool = True
 
     @classmethod
     def from_env(cls) -> "AppConfig":

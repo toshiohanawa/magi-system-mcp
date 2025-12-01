@@ -175,37 +175,42 @@ async def test_llm_failure_treated_as_no():
 
 
 @pytest.mark.asyncio
-async def test_parse_vote_and_reason():
-    """Test vote and reason parsing."""
+async def test_parse_persona_output():
+    """Test vote, reason, and optional notes parsing."""
     engine = MagiConsensusEngine(
         melchior_client=MockLLMClient("gemini", ""),
         balthasar_client=MockLLMClient("claude", ""),
         caspar_client=MockLLMClient("codex", ""),
     )
 
-    # Test YES vote
-    vote, reason = engine._parse_vote_and_reason("VOTE: YES\nREASON: Good implementation")
+    # Test YES vote with reason
+    vote, reason, optional_notes = engine._parse_persona_output("VOTE: YES\nREASON: Good implementation")
     assert vote == Vote.YES
     assert "Good implementation" in reason
+    assert optional_notes is None
 
-    # Test NO vote
-    vote, reason = engine._parse_vote_and_reason("VOTE: NO\nREASON: Security risk")
+    # Test NO vote with reason
+    vote, reason, optional_notes = engine._parse_persona_output("VOTE: NO\nREASON: Security risk")
     assert vote == Vote.NO
     assert "Security risk" in reason
+    assert optional_notes is None
 
-    # Test CONDITIONAL vote
-    vote, reason = engine._parse_vote_and_reason("VOTE: CONDITIONAL\nREASON: Needs tests")
+    # Test CONDITIONAL vote with reason
+    vote, reason, optional_notes = engine._parse_persona_output("VOTE: CONDITIONAL\nREASON: Needs tests")
     assert vote == Vote.CONDITIONAL
     assert "Needs tests" in reason
+    assert optional_notes is None
 
     # Test case insensitive
-    vote, reason = engine._parse_vote_and_reason("vote: yes\nreason: Lowercase")
+    vote, reason, optional_notes = engine._parse_persona_output("vote: yes\nreason: Lowercase")
     assert vote == Vote.YES
     assert "Lowercase" in reason
+    assert optional_notes is None
 
     # Test default to NO if parsing fails
-    vote, reason = engine._parse_vote_and_reason("Invalid format")
+    vote, reason, optional_notes = engine._parse_persona_output("Invalid format")
     assert vote == Vote.NO
+    assert optional_notes is None
 
 
 @pytest.mark.asyncio
@@ -314,3 +319,223 @@ async def test_default_weights():
     assert engine.weights[Persona.BALTHASAR] == 0.35
     assert engine.weights[Persona.CASPAR] == 0.25
     assert engine.conditional_weight == 0.3
+
+
+@pytest.mark.asyncio
+async def test_persona_override_applied():
+    """Test that persona override is correctly applied in prompt generation."""
+    from magi.prompt_builder import build_persona_prompt
+    
+    proposal = "Test proposal"
+    override = "特別な評価基準: このプロジェクトでは速度を最優先する"
+    
+    # Test with override
+    prompt = build_persona_prompt("melchior", proposal, override=override)
+    assert override in prompt
+    assert proposal in prompt
+    
+    # Test without override (should use default)
+    prompt_no_override = build_persona_prompt("melchior", proposal)
+    assert "（追加プロファイルなし）" in prompt_no_override
+    assert proposal in prompt_no_override
+
+
+@pytest.mark.asyncio
+async def test_parse_format_order_tolerance():
+    """Test that parsing works even when format order is different."""
+    engine = MagiConsensusEngine(
+        melchior_client=MockLLMClient("gemini", ""),
+        balthasar_client=MockLLMClient("claude", ""),
+        caspar_client=MockLLMClient("codex", ""),
+    )
+    
+    # Test REASON before VOTE (should still work)
+    content = "REASON: Some reason\nVOTE: YES"
+    vote, reason, optional_notes = engine._parse_persona_output(content)
+    assert vote == Vote.YES
+    assert "Some reason" in reason
+    
+    # Test OPTIONAL_NOTES before REASON
+    content = "VOTE: YES\nOPTIONAL_NOTES: Some notes\nREASON: Some reason"
+    vote, reason, optional_notes = engine._parse_persona_output(content)
+    assert vote == Vote.YES
+    assert "Some reason" in reason
+    assert "Some notes" in optional_notes
+
+
+@pytest.mark.asyncio
+async def test_parse_optional_notes_missing():
+    """Test that parsing works when OPTIONAL_NOTES is missing."""
+    engine = MagiConsensusEngine(
+        melchior_client=MockLLMClient("gemini", ""),
+        balthasar_client=MockLLMClient("claude", ""),
+        caspar_client=MockLLMClient("codex", ""),
+    )
+    
+    # Test without OPTIONAL_NOTES
+    content = "VOTE: YES\nREASON: Some reason"
+    vote, reason, optional_notes = engine._parse_persona_output(content)
+    assert vote == Vote.YES
+    assert "Some reason" in reason
+    assert optional_notes is None
+    
+    # Test with empty OPTIONAL_NOTES
+    content = "VOTE: YES\nREASON: Some reason\nOPTIONAL_NOTES: "
+    vote, reason, optional_notes = engine._parse_persona_output(content)
+    assert vote == Vote.YES
+    assert "Some reason" in reason
+    assert optional_notes is None
+
+
+@pytest.mark.asyncio
+async def test_parse_extra_whitespace():
+    """Test that parsing works with extra whitespace."""
+    engine = MagiConsensusEngine(
+        melchior_client=MockLLMClient("gemini", ""),
+        balthasar_client=MockLLMClient("claude", ""),
+        caspar_client=MockLLMClient("codex", ""),
+    )
+    
+    # Test with extra spaces
+    content = "VOTE:   YES  \nREASON:   Some reason with spaces  \nOPTIONAL_NOTES:   Some notes  "
+    vote, reason, optional_notes = engine._parse_persona_output(content)
+    assert vote == Vote.YES
+    assert "Some reason with spaces" in reason
+    assert "Some notes" in optional_notes
+    
+    # Test with tabs and newlines
+    content = "VOTE:\tYES\n\nREASON:\t\tSome reason\n\nOPTIONAL_NOTES:\nSome notes"
+    vote, reason, optional_notes = engine._parse_persona_output(content)
+    assert vote == Vote.YES
+    assert "Some reason" in reason
+    assert "Some notes" in optional_notes
+
+
+@pytest.mark.asyncio
+async def test_magi_decision_json_structure():
+    """Test that MagiDecision can be serialized to JSON-compatible structure."""
+    from magi.models import MagiDecision, Decision, RiskLevel, PersonaResult, Persona, Vote
+    import json
+    
+    # Create a sample decision
+    persona_results = [
+        PersonaResult(
+            persona=Persona.MELCHIOR,
+            vote=Vote.YES,
+            reason="Technically sound",
+            optional_notes="No concerns"
+        ),
+        PersonaResult(
+            persona=Persona.BALTHASAR,
+            vote=Vote.YES,
+            reason="Safe implementation",
+            optional_notes=None
+        ),
+        PersonaResult(
+            persona=Persona.CASPAR,
+            vote=Vote.CONDITIONAL,
+            reason="Needs optimization",
+            optional_notes="Consider caching"
+        ),
+    ]
+    
+    decision = MagiDecision(
+        decision=Decision.APPROVED,
+        risk_level=RiskLevel.MEDIUM,
+        persona_results=persona_results,
+        aggregate_reason="Approved with conditions",
+        suggested_actions=["Add caching", "Optimize queries"]
+    )
+    
+    # Serialize to dict (simulating JSON serialization)
+    decision_dict = {
+        "decision": decision.decision.value,
+        "risk_level": decision.risk_level.value,
+        "persona_results": [
+            {
+                "persona": r.persona.value,
+                "vote": r.vote.value,
+                "reason": r.reason,
+                "optional_notes": r.optional_notes,
+            }
+            for r in decision.persona_results
+        ],
+        "aggregate_reason": decision.aggregate_reason,
+        "suggested_actions": decision.suggested_actions,
+    }
+    
+    # Verify it can be JSON serialized
+    json_str = json.dumps(decision_dict, ensure_ascii=False)
+    assert "decision" in json_str
+    assert "persona_results" in json_str
+    assert "optional_notes" in json_str
+    
+    # Verify structure
+    assert decision_dict["decision"] == "APPROVED"
+    assert decision_dict["risk_level"] == "MEDIUM"
+    assert len(decision_dict["persona_results"]) == 3
+    assert decision_dict["persona_results"][0]["optional_notes"] == "No concerns"
+    assert decision_dict["persona_results"][1]["optional_notes"] is None
+
+
+@pytest.mark.asyncio
+async def test_fallback_format_consistency():
+    """Test that fallback maintains format consistency."""
+    from magi.models import Persona
+    
+    # Create clients with consistent format responses
+    melchior = MockLLMClient("gemini", "VOTE: YES\nREASON: Good\nOPTIONAL_NOTES: None")
+    balthasar = MockLLMClient("claude", "VOTE: YES\nREASON: Safe\nOPTIONAL_NOTES: None")
+    caspar = MockLLMClient("codex", "VOTE: YES\nREASON: Works\nOPTIONAL_NOTES: None")
+    
+    engine = MagiConsensusEngine(
+        melchior_client=melchior,
+        balthasar_client=balthasar,
+        caspar_client=caspar,
+    )
+    
+    decision = await engine.evaluate("Test proposal", "NORMAL")
+    
+    # Verify all results have consistent structure
+    assert len(decision.persona_results) == 3
+    for result in decision.persona_results:
+        assert result.vote in (Vote.YES, Vote.NO, Vote.CONDITIONAL)
+        assert result.reason is not None
+        assert isinstance(result.optional_notes, (str, type(None)))
+    
+    # Simulate fallback scenario (one client fails, fallback succeeds)
+    async def fail_then_succeed(prompt: str, trace_id: str | None = None):
+        # First call fails, second succeeds
+        if not hasattr(fail_then_succeed, 'called'):
+            fail_then_succeed.called = True
+            return LLMFailure(
+                model="codex",
+                error_type="timeout",
+                error_message="Request timeout",
+                duration_ms=60000.0,
+                source="mock",
+                trace_id=trace_id or "test",
+            )
+        else:
+            return LLMSuccess(
+                model="codex",
+                content="VOTE: YES\nREASON: Works after fallback\nOPTIONAL_NOTES: None",
+                duration_ms=100.0,
+                source="mock",
+                trace_id=trace_id or "test",
+            )
+    
+    caspar.generate_with_result = fail_then_succeed
+    fail_then_succeed.called = False
+    
+    # Reset fallback state
+    engine.fallback_manager.reset()
+    
+    decision_after_fallback = await engine.evaluate("Test proposal", "NORMAL")
+    
+    # Verify format consistency is maintained after fallback
+    assert len(decision_after_fallback.persona_results) == 3
+    for result in decision_after_fallback.persona_results:
+        assert result.vote in (Vote.YES, Vote.NO, Vote.CONDITIONAL)
+        assert result.reason is not None
+        assert isinstance(result.optional_notes, (str, type(None)))

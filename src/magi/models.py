@@ -131,6 +131,7 @@ class PersonaResult:
     persona: Persona
     vote: Vote
     reason: str
+    optional_notes: Optional[str] = None
 
 
 @dataclass

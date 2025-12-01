@@ -83,6 +83,7 @@ class MagiConsensusEngine:
         self, 
         proposal: str, 
         criticality: str = "NORMAL",
+        persona_overrides: Optional[Dict[Persona, str]] = None,
         session_id: str | None = None,
         trace_id: str | None = None,
         verbose: bool = False,
@@ -93,6 +94,7 @@ class MagiConsensusEngine:
         Args:
             proposal: The proposal to evaluate
             criticality: "CRITICAL" | "NORMAL" | "LOW"
+            persona_overrides: Optional dict mapping Persona to override text
             session_id: Session ID for logging
             trace_id: Trace ID for logging
             verbose: If True, return detailed logs and timeline
@@ -104,10 +106,23 @@ class MagiConsensusEngine:
         logs: list[Dict[str, Any]] = []
         timeline: list[str] = []
         
-        # Build persona prompts
-        mel_prompt = build_persona_prompt(PersonaEnum.MELCHIOR, proposal)
-        bal_prompt = build_persona_prompt(PersonaEnum.BALTHASAR, proposal)
-        cas_prompt = build_persona_prompt(PersonaEnum.CASPAR, proposal)
+        # Build persona prompts with optional overrides
+        persona_overrides = persona_overrides or {}
+        mel_prompt = build_persona_prompt(
+            PersonaEnum.MELCHIOR, 
+            proposal, 
+            override=persona_overrides.get(Persona.MELCHIOR)
+        )
+        bal_prompt = build_persona_prompt(
+            PersonaEnum.BALTHASAR, 
+            proposal, 
+            override=persona_overrides.get(Persona.BALTHASAR)
+        )
+        cas_prompt = build_persona_prompt(
+            PersonaEnum.CASPAR, 
+            proposal, 
+            override=persona_overrides.get(Persona.CASPAR)
+        )
 
         # Execute all three in parallel with fallback support
         logger.info("Starting parallel persona evaluation")
@@ -278,8 +293,8 @@ class MagiConsensusEngine:
 
         if isinstance(result, LLMSuccess):
             try:
-                # Parse VOTE and REASON from content
-                vote, reason = self._parse_vote_and_reason(result.content)
+                # Parse VOTE, REASON, and OPTIONAL_NOTES from content
+                vote, reason, optional_notes = self._parse_persona_output(result.content)
                 logger.debug(
                     f"{persona.value} evaluation succeeded: {vote.value}",
                     extra={
@@ -289,7 +304,12 @@ class MagiConsensusEngine:
                         "trace_id": result.trace_id,
                     }
                 )
-                return PersonaResult(persona=persona, vote=vote, reason=reason)
+                return PersonaResult(
+                    persona=persona, 
+                    vote=vote, 
+                    reason=reason,
+                    optional_notes=optional_notes
+                )
             except Exception as parse_error:
                 logger.error(
                     f"Failed to parse {persona.value} result: {parse_error}",
@@ -309,31 +329,32 @@ class MagiConsensusEngine:
             reason="Failed to parse persona result: unknown result type",
         )
 
-    def _parse_vote_and_reason(self, content: str) -> tuple[Vote, str]:
+    def _parse_persona_output(self, content: str) -> tuple[Vote, str, Optional[str]]:
         """
-        Parse VOTE and REASON from LLM output with validation.
+        Parse VOTE, REASON, and OPTIONAL_NOTES from LLM output with validation.
 
-        Looks for patterns like:
-        - VOTE: YES
-        - REASON: ...
+        Unified Persona Template (UPT) format:
+        - VOTE: YES | NO | CONDITIONAL
+        - REASON: (箇条書き)
+        - OPTIONAL_NOTES: (optional)
 
-        Case-insensitive, defaults to NO if parsing fails.
-        Includes output format validation.
+        Case-insensitive, tolerant of order variations and whitespace.
+        Defaults to NO vote if parsing fails.
         """
         # 出力長の検証
         if len(content) > 5000:
             logger.warning("LLM output exceeds expected length")
-            return Vote.NO, "Output format validation failed: excessive length"
+            return Vote.NO, "Output format validation failed: excessive length", None
 
         content_upper = content.upper()
 
-        # Try to find VOTE with strict pattern matching
+        # Try to find VOTE with strict pattern matching (case-insensitive)
         vote_pattern = r"VOTE:\s*(YES|NO|CONDITIONAL)"
         vote_match = re.search(vote_pattern, content_upper)
         
         if not vote_match:
             logger.warning("VOTE format not found in LLM output")
-            return Vote.NO, "Output format validation failed: VOTE not found"
+            return Vote.NO, "Output format validation failed: VOTE not found", None
 
         # 投票の解析と検証
         vote_str = vote_match.group(1)
@@ -341,10 +362,11 @@ class MagiConsensusEngine:
             vote = Vote[vote_str]
         except KeyError:
             logger.warning(f"Invalid VOTE value: {vote_str}")
-            return Vote.NO, "Output format validation failed: invalid VOTE value"
+            return Vote.NO, "Output format validation failed: invalid VOTE value", None
 
-        # Try to find REASON
-        reason_pattern = r"REASON:\s*(.+?)(?:\n\n|\nVOTE:|$)"
+        # Try to find REASON (flexible pattern, handles whitespace variations)
+        # REASON: 以降、OPTIONAL_NOTES: または終端までを取得
+        reason_pattern = r"REASON:\s*(.+?)(?:\n\s*OPTIONAL_NOTES:|$)"
         reason_match = re.search(reason_pattern, content, re.DOTALL | re.IGNORECASE)
         
         if reason_match:
@@ -354,14 +376,33 @@ class MagiConsensusEngine:
                 logger.warning("REASON exceeds expected length, truncating")
                 reason = reason[:2000] + "..."
         else:
-            # Fallback: use content after VOTE line
-            reason_start = vote_match.end()
-            reason = content[reason_start:].strip()[:500]  # Limit length
+            # Fallback: use content after VOTE line, before OPTIONAL_NOTES if present
+            vote_end = vote_match.end()
+            optional_start = re.search(r"OPTIONAL_NOTES:", content_upper)
+            if optional_start:
+                reason = content[vote_end:optional_start.start()].strip()[:500]
+            else:
+                reason = content[vote_end:].strip()[:500]
             if not reason:
                 reason = "No reason provided"
             logger.warning("REASON format not found, using fallback")
 
-        return vote, reason
+        # Try to find OPTIONAL_NOTES (optional, may be missing)
+        optional_pattern = r"OPTIONAL_NOTES:\s*(.+?)(?:\n\s*(?:VOTE|REASON):|$)"
+        optional_match = re.search(optional_pattern, content, re.DOTALL | re.IGNORECASE)
+        
+        optional_notes = None
+        if optional_match:
+            optional_notes = optional_match.group(1).strip()
+            # OPTIONAL_NOTESの長さ検証と切り詰め
+            if len(optional_notes) > 1000:
+                logger.warning("OPTIONAL_NOTES exceeds expected length, truncating")
+                optional_notes = optional_notes[:1000] + "..."
+            # 空文字列の場合はNoneに変換
+            if not optional_notes:
+                optional_notes = None
+
+        return vote, reason, optional_notes
 
     def _aggregate_votes(
         self, persona_results: list[PersonaResult], criticality: str

@@ -8,6 +8,7 @@ import re
 import unicodedata
 import logging
 
+from typing import Optional
 from magi.personas import MELCHIOR_PROMPT, BALTHASAR_PROMPT, CASPAR_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -125,16 +126,21 @@ def escape_structural_tags(text: str) -> str:
     return text
 
 
-def build_persona_prompt(persona: str, proposal: str) -> str:
+def build_persona_prompt(
+    persona: str, 
+    proposal: str, 
+    override: Optional[str] = None
+) -> str:
     """
     Build a prompt that combines persona instructions with user proposal.
 
-    For CLI wrappers that don't support explicit system/user separation,
-    we use a simple concatenation format with clear delimiters.
+    Uses Unified Persona Template (UPT) format with {proposal} and {persona_override}
+    placeholders that are filled via .format().
 
     Args:
         persona: One of "melchior", "balthasar", "caspar"
         proposal: The user's proposal to evaluate
+        override: Optional persona override text (default: "（追加プロファイルなし）")
 
     Returns:
         Combined prompt string ready for CLI input
@@ -149,16 +155,26 @@ def build_persona_prompt(persona: str, proposal: str) -> str:
     except ValueError as e:
         logger.error(f"Input validation failed for persona {persona}: {e}")
         raise ValueError(f"Invalid proposal: {e}") from e
-    # エスケープは区切り文字を使用するため、提案部分のみエスケープしない
-    # 代わりに、区切り文字で明確に分離することで安全性を確保
 
-    persona_instruction = PERSONA_PROMPTS.get(persona)
-    if not persona_instruction:
+    persona_template = PERSONA_PROMPTS.get(persona)
+    if not persona_template:
         error_msg = f"Unknown persona: {persona}. Available personas: {list(PERSONA_PROMPTS.keys())}"
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    # 明確な区切り文字を使用
+    # テンプレートに{proposal}と{persona_override}を埋め込む
+    persona_override = override or "（追加プロファイルなし）"
+    
+    try:
+        persona_instruction = persona_template.format(
+            proposal=proposal,
+            persona_override=persona_override
+        )
+    except KeyError as e:
+        logger.error(f"Template format error for persona {persona}: {e}")
+        raise ValueError(f"Template format error: {e}") from e
+
+    # 明確な区切り文字を使用（後方互換性のため）
     return f"""<PERSONA_INSTRUCTION>
 {persona_instruction}
 </PERSONA_INSTRUCTION>

@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     llm_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="全LLMのデフォルトタイムアウト（秒）")
     wrapper_timeout: float = Field(default=float(DEFAULT_TIMEOUT), description="ラッパーのタイムアウト（秒）")
     fallback_policy: str = Field(default="lenient", description="LLM失敗時のフォールバックポリシー (lenient|strict)")
-    verbose_default: bool = Field(default=False, description="verboseレスポンスをデフォルトで有効にするか (MAGI_VERBOSE_DEFAULT)")
+    verbose_default: bool = Field(default=True, description="verboseレスポンスをデフォルトで有効にするか (MAGI_VERBOSE_DEFAULT)")
     
     # MAGI Consensus設定
     melchior_weight: float = Field(default=0.4, description="Melchior persona weight")

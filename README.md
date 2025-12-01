@@ -221,7 +221,7 @@ Consensusモードは、3つのペルソナ（Melchior/Gemini、Balthasar/Claude
 - `fallback_policy`: 
   - `lenient` (デフォルト): LLM失敗時もスタブで続行し3案を揃える
   - `strict`: 最初に失敗したLLM以降は実行せず、`status: "skipped"` で返す
-- `verbose`: `true` で実行経路ログ `logs`、`summary`、`timeline` を返す
+- `verbose`: 実行経路ログ `logs`、`summary`、`timeline` を返す（デフォルト: `true`）。`false`で無効化可能
 
 ### Proposal Battleモード
 
@@ -331,18 +331,35 @@ Proposal Battleモードは、3つのLLMが順次実行され、それぞれ異�
 - `fallback_policy`: 
   - `lenient` (デフォルト): LLM失敗時もスタブで続行し3案を揃える
   - `strict`: 最初に失敗したLLM以降は実行せず、`status: "skipped"` で返す
-- `verbose`: `true` で実行経路ログ `logs`、`summary`、`timeline` を返す
+- `verbose`: 実行経路ログ `logs`、`summary`、`timeline` を返す（デフォルト: `true`）。`false`で無効化可能
 
 ### Consensusモード（デフォルト）
 
 Consensusモードは、3つのペルソナ（Melchior/Gemini、Balthasar/Claude、Caspar/Codex）が**並列**に評価を行い、重み付き投票システムで最終決定を下すモードです。コード変更の評価や意思決定に適しています。
 
+#### 統一ペルソナテンプレート（UPT）
+
+すべてのペルソナは、統一された厳密な出力フォーマット（Unified Persona Template, UPT）に従います：
+
+```
+VOTE: YES | NO | CONDITIONAL
+
+REASON:
+- 箇条書きで具体的理由を列挙
+
+OPTIONAL_NOTES:
+- 必要なら補足を書く（なければ空欄でよい）
+```
+
+この統一フォーマットにより、LLM出力の揺らぎに耐性のある堅牢なパースが可能です。詳細は `docs/MAGI_CONSENSUS_PROMPTS.md` を参照してください。
+
 #### 実行フロー
 
 1. **並列評価**
    - 3つのペルソナが同時に評価を実行（`asyncio.gather`を使用）
-   - 各ペルソナは独立したプロンプトで評価
+   - 各ペルソナは統一ペルソナテンプレート（UPT）に従った独立したプロンプトで評価
    - フォールバック機能により、利用制限に達したLLMは自動的に他のLLMに置き換え
+   - カスタムペルソナプロファイル（`persona_override`）を指定可能
 
 2. **投票の集約**
    - 各ペルソナは `YES`、`NO`、`CONDITIONAL` のいずれかを投票
@@ -361,6 +378,11 @@ Consensusモードは、3つのペルソナ（Melchior/Gemini、Balthasar/Claude
    - リスクレベル: `LOW`、`MEDIUM`、`HIGH`
 
 #### ペルソナの詳細な役割
+
+すべてのペルソナは統一ペルソナテンプレート（UPT）に従い、以下の形式で出力します：
+- `VOTE`: YES | NO | CONDITIONAL
+- `REASON`: 箇条書きで具体的理由を列挙
+- `OPTIONAL_NOTES`: 必要なら補足（空欄可）
 
 **Melchior (Gemini) - 科学者**
 - **評価観点**: 論理的整合性・技術的正確性・仕様との整合性のみ
@@ -392,6 +414,24 @@ Consensusモードは、3つのペルソナ（Melchior/Gemini、Balthasar/Claude
   - 実装の容易さ: シンプルで実装しやすいか
 - **許容範囲**: 軽微な技術的負債やルール違反は、結果が有用であれば許容
 - **重み**: 0.25
+
+#### persona_override（カスタムペルソナプロファイル）
+
+各ペルソナに追加の評価基準や指示を提供できます：
+
+```json
+{
+  "initial_prompt": "新しい認証システムの実装",
+  "mode": "consensus",
+  "persona_overrides": {
+    "melchior": "このプロジェクトではPython 3.11以上を必須とする",
+    "balthasar": "GDPR準拠を最優先で確認すること",
+    "caspar": "MVPとして2週間以内にリリース可能な範囲で評価"
+  }
+}
+```
+
+`persona_override`が指定されていない場合、テンプレート内では「（追加プロファイルなし）」が表示されます。
 
 #### Criticalityレベル
 
@@ -431,21 +471,24 @@ Consensusモードは、3つのペルソナ（Melchior/Gemini、Balthasar/Claude
         "persona_name": "Melchior (Scientist)",
         "vote": "YES | NO | CONDITIONAL",
         "vote_label": "Approved | Rejected | Conditional Approval",
-        "reason": "技術的な評価理由..."
+        "reason": "技術的な評価理由...",
+        "optional_notes": "補足情報（オプション、nullの場合あり）"
       },
       {
         "persona": "balthasar",
         "persona_name": "Balthasar (Safety)",
         "vote": "YES | NO | CONDITIONAL",
         "vote_label": "Approved | Rejected | Conditional Approval",
-        "reason": "安全性・リスク評価..."
+        "reason": "安全性・リスク評価...",
+        "optional_notes": null
       },
       {
         "persona": "caspar",
         "persona_name": "Caspar (Pragmatist)",
         "vote": "YES | NO | CONDITIONAL",
         "vote_label": "Approved | Rejected | Conditional Approval",
-        "reason": "実用性・速度評価..."
+        "reason": "実用性・速度評価...",
+        "optional_notes": "実装時の注意点など"
       }
     ],
     "aggregate_reason": "集約された判断理由",
@@ -611,6 +654,7 @@ LLMが利用制限に達した場合、他のLLMが自動的に役割を代行�
 - **セットアップ関連**: `docs/setup/` - Cursor MCP設定、トラブルシューティング
 - **ユーザーガイド**: `docs/guides/` - Cursorでの使用方法
 - **開発者向け**: `docs/development/` - 既知課題、実装詳細
+- **Consensusモード**: `docs/MAGI_CONSENSUS_PROMPTS.md` - 統一ペルソナテンプレート（UPT）仕様、persona_override利用方法
 - **アーカイブ**: `docs/archive/` - 過去のリファクタリングログ、デバッグ記録
 - **ドキュメントマップ**: `docs/INDEX.md` - すべてのドキュメントへのリンク一覧
 
@@ -654,12 +698,14 @@ Proposal BattleまたはConsensusを開始します。
 
 **パラメータ:**
 - `initial_prompt` (必須): プロンプト
-- `mode` (オプション): `"proposal_battle"` (デフォルト) または `"consensus"`
+- `mode` (オプション): `"proposal_battle"` または `"consensus"` (デフォルト)
 - `fallback_policy` (オプション): `"lenient"` (デフォルト) または `"strict"`
   - `lenient`: LLM失敗時もスタブで続行し3案を揃える
   - `strict`: 最初に失敗したLLM以降は実行せず、`status: "skipped"` で返す
-- `verbose` (オプション): `true` で実行経路ログ `logs`、`summary`、`timeline` を返す
+- `verbose` (オプション): 実行経路ログ `logs`、`summary`、`timeline` を返す（デフォルト: `true`）。`false`で無効化可能
 - `criticality` (オプション): Consensusモード用。`"CRITICAL"`, `"NORMAL"` (デフォルト), `"LOW"`
+- `persona_overrides` (オプション): Consensusモード用。各ペルソナに追加の評価基準を指定する辞書
+  - 例: `{"melchior": "Python 3.11以上を必須", "balthasar": "GDPR準拠を最優先"}`
 
 **レスポンス例:**
 ```json
@@ -1042,6 +1088,16 @@ MAGIシステムのデフォルトモードを環境変数で設定できます�
   - 例: `MAGI_DEFAULT_MODE=proposal_battle` でProposal Battleモードをデフォルトに設定
 
 APIリクエストで `mode` パラメータを明示的に指定した場合は、その値が優先されます。
+
+### Verboseモード設定
+
+verboseモードはデフォルトで有効になっています。環境変数でデフォルト値を変更できます：
+
+- `MAGI_VERBOSE_DEFAULT`: verboseモードのデフォルト値を指定（`true`、`false`、`1`、`0`、`yes`、`no`、`on`、`off`）
+  - デフォルト値: `true`（verboseモードが有効）
+  - 例: `MAGI_VERBOSE_DEFAULT=false` でverboseモードをデフォルトで無効化
+
+APIリクエストで `verbose` パラメータを明示的に指定した場合は、その値が優先されます。
 
 ### ラッパーの動作モード
 
