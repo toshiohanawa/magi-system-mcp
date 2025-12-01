@@ -9,6 +9,7 @@
 - `docs/setup/CURSOR_MCP_SETUP.md`: CursorでのMCP設定手順
 - `docs/setup/RESTORE_MCP_CONFIG.md`: MCP設定の復元方法
 - `docs/setup/TROUBLESHOOTING_MCP.md`: MCP関連のトラブルシューティング
+- `docs/setup/PERMISSION_ERROR_FIX.md`: Codex/Gemini権限エラーの解消方法（**新しい端末でのセットアップ時に重要**）
 - `scripts/setup_environment.sh`: 環境構築スクリプト
 - `scripts/setup_global_mcp.sh`: グローバルMCP設定スクリプト
 - `scripts/setup_real_cli.sh`: 実CLI設定スクリプト
@@ -32,4 +33,6 @@
 - `scripts/start_host_wrappers.sh` / `scripts/stop_host_wrappers.sh`: ホストラッパー起動・停止
 - `scripts/run_host.sh`: ホストラッパー実行
 
-困ったら `README.md` → `docs/development/ISSUES.md` → `docs/setup/TROUBLESHOOTING_MCP.md` の順に確認してください。
+困ったら `README.md` → `docs/development/ISSUES.md` → `docs/setup/TROUBLESHOOTING_MCP.md` → `docs/setup/PERMISSION_ERROR_FIX.md` の順に確認してください。
+
+**新しい端末でセットアップする際は、`docs/setup/PERMISSION_ERROR_FIX.md`を必ず確認してください。**

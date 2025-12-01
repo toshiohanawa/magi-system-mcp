@@ -7,11 +7,12 @@ from typing import Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from magi.controller import MAGIController
 from magi.models import ModelOutput
 from magi.logging_config import setup_logging
+from magi.settings import Settings
 
 # Phase 1: 構造化ロギングの設定
 setup_logging(level="INFO", use_json=True)
@@ -26,11 +27,12 @@ app.add_middleware(
 )
 
 controller = MAGIController()
+settings = Settings.from_env()
 
 
 class StartRequest(BaseModel):
     initial_prompt: str
-    mode: str = "proposal_battle"
+    mode: str = Field(default_factory=lambda: settings.get_default_mode())
     skip_claude: bool = False
     fallback_policy: str | None = None
     verbose: bool | None = None
@@ -187,11 +189,17 @@ async def health() -> HealthResponse:
 
 
 def serialize_output(output: ModelOutput) -> Dict[str, Any]:
-    return {
+    result = {
         "model": output.model,
         "content": output.content,
         "metadata": output.metadata,
     }
+    # フォールバック情報と利用制限情報を追加
+    if output.fallback_info:
+        result["fallback_info"] = output.fallback_info
+    if output.rate_limit_info:
+        result["rate_limit_info"] = output.rate_limit_info
+    return result
 
 
 def generate_openapi_schema() -> None:

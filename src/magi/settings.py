@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     caspar_weight: float = Field(default=0.25, description="Caspar persona weight")
     conditional_weight: float = Field(default=0.3, description="Conditional vote weight")
     default_criticality: str = Field(default="NORMAL", description="Default criticality level (CRITICAL|NORMAL|LOW)")
+    default_mode: str = Field(default="consensus", description="Default mode (consensus|proposal_battle)")
     
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -96,6 +97,15 @@ class Settings(BaseSettings):
             import warnings
             warnings.warn(f"Timeout {v}s is very long, consider reducing it")
         return v
+    
+    @field_validator("default_mode")
+    @classmethod
+    def validate_default_mode(cls, v: str) -> str:
+        """デフォルトモードのバリデーション"""
+        allowed = {"consensus", "proposal_battle"}
+        if v.lower() not in allowed:
+            raise ValueError(f"default_mode must be one of {allowed}")
+        return v.lower()
     
     def get_codex_config(self) -> dict:
         """Codex設定を取得（後方互換性のため）"""
@@ -168,6 +178,18 @@ class Settings(BaseSettings):
             return bool(self.verbose_default)
         # accept truthy strings
         return env_value.strip().lower() in {"1", "true", "yes", "on"}
+    
+    def get_default_mode(self) -> str:
+        """デフォルトモードを取得"""
+        env_value = os.getenv("MAGI_DEFAULT_MODE")
+        if env_value is None:
+            return self.default_mode
+        # バリデーション
+        normalized = env_value.strip().lower()
+        allowed = {"consensus", "proposal_battle"}
+        if normalized not in allowed:
+            return self.default_mode  # 無効な値の場合はデフォルトを返す
+        return normalized
     
     @classmethod
     def from_env(cls) -> "Settings":

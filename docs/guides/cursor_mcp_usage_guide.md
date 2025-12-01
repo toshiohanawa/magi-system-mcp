@@ -23,8 +23,11 @@ Cursorのチャットで、以下のように入力します：
 
 2. **`mode`** (オプション)
    - 型: `string`
-   - デフォルト: `"proposal_battle"`
-   - 説明: 実行モード（現在は`proposal_battle`のみサポート）
+   - デフォルト: `"consensus"`（環境変数`MAGI_DEFAULT_MODE`で変更可能）
+   - 説明: 実行モード
+   - 値: `"consensus"` または `"proposal_battle"`
+   - `consensus`: 3つのペルソナが並列評価を行い、重み付き投票システムで最終決定を下す（デフォルト）
+   - `proposal_battle`: 3つのLLMが順次実行され、それぞれ異なる役割で提案を生成
 
 3. **`skip_claude`** (オプション)
    - 型: `boolean`

@@ -42,11 +42,26 @@ def create_wrapper_app(command_env: str, default_cmd: str) -> FastAPI:
             raise HTTPException(status_code=500, detail="CLI missing")
         proc = None
         try:
+            # 作業ディレクトリを明示的に設定（プロジェクトルートまたはホームディレクトリ）
+            # 環境変数を適切に継承（特にNode.jsベースのCLIで必要）
+            cwd = os.getenv("WRAPPER_CWD", os.getcwd())
+            if not os.path.exists(cwd) or not os.access(cwd, os.R_OK | os.X_OK):
+                # アクセスできない場合はホームディレクトリを使用
+                cwd = os.path.expanduser("~")
+            
+            # 環境変数を継承し、必要な変数を明示的に設定
+            env = os.environ.copy()
+            env.setdefault("HOME", os.path.expanduser("~"))
+            env.setdefault("USER", os.getenv("USER", "unknown"))
+            env.setdefault("PWD", cwd)
+            
             proc = await asyncio.create_subprocess_exec(
                 *command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=env,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(input=req.prompt.encode("utf-8")), timeout=timeout

@@ -42,12 +42,29 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     try:
         # Gemini CLIは位置引数でプロンプトを受け取る（one-shotモード）
         # 一部の環境で対話モードに入らないよう、位置引数と標準入力の両方にプロンプトを渡す
+        
+        # 作業ディレクトリを明示的に設定（Node.jsのuv_cwdエラーを防ぐため）
+        cwd = os.getenv("WRAPPER_CWD", os.getcwd())
+        if not os.path.exists(cwd) or not os.access(cwd, os.R_OK | os.X_OK):
+            # アクセスできない場合はホームディレクトリを使用
+            cwd = os.path.expanduser("~")
+        
+        # 環境変数を継承し、Node.jsに必要な変数を明示的に設定
+        env = os.environ.copy()
+        env.setdefault("HOME", os.path.expanduser("~"))
+        env.setdefault("USER", os.getenv("USER", "unknown"))
+        env.setdefault("PWD", cwd)
+        # Node.js関連の環境変数も設定
+        env.setdefault("NODE_ENV", "production")
+        
         proc = await asyncio.create_subprocess_exec(
             *command,
             req.prompt,  # 位置引数としてプロンプトを渡す
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=env,
         )
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(input=req.prompt.encode("utf-8")),

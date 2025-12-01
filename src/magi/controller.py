@@ -24,7 +24,7 @@ class MAGIController:
     async def start_magi(
         self,
         initial_prompt: str,
-        mode: str = "proposal_battle",
+        mode: Optional[str] = None,
         skip_claude: bool = False,
         fallback_policy: Optional[str] = None,
         verbose: Optional[bool] = None,
@@ -33,6 +33,16 @@ class MAGIController:
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"[DEBUG] controller.start_magi called with verbose={verbose} (type: {type(verbose)}), verbose_default={self.verbose_default}")
+        
+        # デフォルトモードを取得
+        if mode is None:
+            try:
+                from magi.settings import Settings
+                settings = Settings.from_env()
+                mode = settings.get_default_mode()
+            except (ImportError, AttributeError):
+                mode = "consensus"  # フォールバック
+        
         state = self.session_store.create(mode=mode)
         policy = (fallback_policy or self.fallback_policy or "lenient").lower()
         verbose_flag = self.verbose_default if verbose is None else verbose

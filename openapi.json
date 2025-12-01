@@ -191,7 +191,8 @@
           "mode": {
             "type": "string",
             "title": "Mode",
-            "default": "proposal_battle"
+            "default": "consensus",
+            "description": "Execution mode: 'consensus' (default) or 'proposal_battle'. Can be configured via MAGI_DEFAULT_MODE environment variable."
           },
           "skip_claude": {
             "type": "boolean",

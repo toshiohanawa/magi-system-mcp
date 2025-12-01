@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Literal, List
 from enum import Enum
+from datetime import datetime
 import uuid
 import time
 
@@ -73,6 +74,8 @@ class ModelOutput:
     model: str
     content: str
     metadata: Dict[str, str] = field(default_factory=dict)
+    fallback_info: Optional[Dict[str, str]] = None  # フォールバック情報（どのLLMがどの役割を代行したか）
+    rate_limit_info: Optional[Dict[str, str]] = None  # 利用制限情報（リトライ時間含む）
 
 
 @dataclass
@@ -80,6 +83,8 @@ class SessionState:
     session_id: str
     mode: str
     last_outputs: Dict[str, ModelOutput] = field(default_factory=dict)
+    rate_limited_services: List[str] = field(default_factory=list)  # 利用制限に達したサービス
+    retry_times: Dict[str, Optional[datetime]] = field(default_factory=dict)  # 各サービスのリトライ時間
 
     @classmethod
     def new(cls, mode: str) -> "SessionState":

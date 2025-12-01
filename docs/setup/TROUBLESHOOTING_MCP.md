@@ -146,6 +146,95 @@ curl http://127.0.0.1:8787/openapi.json
 
 **解決策**: `@`を押した後、検索ボックスで`magi`、`start`、`health`などで検索してください。
 
+## 問題5: Codex/Geminiの権限エラー
+
+### 症状
+
+以下のようなエラーメッセージが表示される場合：
+
+- **Codex**: `Operation not permitted (os error 1)`
+- **Gemini**: `EPERM: operation not permitted, uv_cwd`
+
+### 原因
+
+ホストラッパーがCLIを実行する際に、作業ディレクトリ（cwd）と環境変数が適切に設定されていないことが原因です。特にNode.jsベースのGemini CLIでは、`HOME`、`PWD`、`USER`などの環境変数が必須です。
+
+### 解決策
+
+この問題は既にコードで修正済みです（`host_wrappers/base_wrapper.py`と`host_wrappers/gemini_wrapper.py`）。以下の確認を行ってください：
+
+#### 1. 最新のコードが使用されているか確認
+
+```bash
+# プロジェクトルートで最新のコードを確認
+cd /path/to/magi-system-mcp
+git pull  # リモートから最新を取得する場合
+
+# 修正が含まれているか確認
+grep -n "cwd=cwd" host_wrappers/base_wrapper.py
+grep -n "cwd=cwd" host_wrappers/gemini_wrapper.py
+```
+
+#### 2. ホストラッパーを再起動
+
+修正が反映されていない場合は、ホストラッパーを再起動してください：
+
+```bash
+# 既存のラッパーを停止
+bash scripts/stop_host_wrappers.sh
+
+# ラッパーを再起動
+bash scripts/start_host_wrappers.sh
+```
+
+#### 3. 動作確認
+
+```bash
+# 各ラッパーのヘルスチェック
+curl http://127.0.0.1:9001/health  # Codex
+curl http://127.0.0.1:9003/health  # Gemini
+
+# 実際にテスト実行
+curl -X POST http://127.0.0.1:9003/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "test"}' | python3 -m json.tool
+```
+
+### 技術的な詳細
+
+修正内容：
+
+1. **`host_wrappers/base_wrapper.py`**:
+   - `asyncio.create_subprocess_exec`に`cwd`パラメータを追加
+   - `env`パラメータで環境変数を明示的に設定（`HOME`、`USER`、`PWD`）
+
+2. **`host_wrappers/gemini_wrapper.py`**:
+   - `asyncio.create_subprocess_exec`に`cwd`パラメータを追加
+   - `env`パラメータでNode.jsに必要な環境変数を設定（`NODE_ENV`を含む）
+
+### 新しい環境でのセットアップ時の注意
+
+新しい端末でセットアップする際は、以下の点に注意してください：
+
+1. **環境変数の確認**: `HOME`、`USER`、`PWD`が適切に設定されているか確認
+   ```bash
+   echo $HOME
+   echo $USER
+   echo $PWD
+   ```
+
+2. **作業ディレクトリの確認**: プロジェクトルートでコマンドを実行しているか確認
+   ```bash
+   pwd
+   # プロジェクトルートであることを確認
+   ```
+
+3. **ラッパーの起動**: 必ずプロジェクトルートからラッパーを起動
+   ```bash
+   cd /path/to/magi-system-mcp
+   bash scripts/start_host_wrappers.sh
+   ```
+
 ## 確認コマンド
 
 以下のコマンドで現在の状態を確認できます：
@@ -162,6 +251,12 @@ curl http://127.0.0.1:8787/openapi.json | python3 -m json.tool | head -20
 
 # Dockerコンテナの状態
 docker compose ps
+
+# ラッパーの状態
+curl http://127.0.0.1:9001/health  # Codex
+curl http://127.0.0.1:9002/health  # Claude
+curl http://127.0.0.1:9003/health  # Gemini
+curl http://127.0.0.1:9004/health  # Judge
 ```
 
 

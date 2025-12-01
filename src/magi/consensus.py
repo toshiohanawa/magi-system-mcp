@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 
 from magi.clients.base_client import BaseLLMClient
@@ -25,6 +26,8 @@ from magi.models import (
     LLMFailure,
 )
 from magi.prompt_builder import build_persona_prompt, Persona as PersonaEnum
+from magi.fallback_manager import FallbackManager, LLMName
+from magi.rate_limit import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,15 @@ class MagiConsensusEngine:
         # Conditional vote weight (configurable)
         self.conditional_weight = conditional_weight if conditional_weight is not None else 0.3
 
+        # フォールバックマネージャーを初期化
+        # コンセンサスモードでは、caspar=Codex, balthasar=Claude, melchior=Gemini
+        # FallbackManagerはBaseLLMClientを受け入れるため、直接渡す
+        self.fallback_manager = FallbackManager(
+            caspar_client,   # Codex
+            balthasar_client,  # Claude
+            melchior_client,   # Gemini
+        )
+
     async def evaluate(
         self, 
         proposal: str, 
@@ -89,8 +101,6 @@ class MagiConsensusEngine:
             MagiDecision with final decision, risk level, and explanations
             If verbose=True, returns tuple of (MagiDecision, logs, summary, timeline)
         """
-        from datetime import datetime, timezone
-        
         logs: list[Dict[str, Any]] = []
         timeline: list[str] = []
         
@@ -99,19 +109,38 @@ class MagiConsensusEngine:
         bal_prompt = build_persona_prompt(PersonaEnum.BALTHASAR, proposal)
         cas_prompt = build_persona_prompt(PersonaEnum.CASPAR, proposal)
 
-        # Execute all three in parallel
+        # Execute all three in parallel with fallback support
         logger.info("Starting parallel persona evaluation")
         if verbose:
             timeline.append(f"[start] parallel evaluation (trace_id={trace_id or 'unknown'})")
         
+        # フォールバックマネージャーをリセット
+        if self.fallback_manager:
+            self.fallback_manager.reset()
+        
+        # 最初の並列実行
         results = await asyncio.gather(
             self.melchior_client.generate_with_result(mel_prompt, trace_id=trace_id),
             self.balthasar_client.generate_with_result(bal_prompt, trace_id=trace_id),
             self.caspar_client.generate_with_result(cas_prompt, trace_id=trace_id),
             return_exceptions=True,
         )
-
-        # Parse results with verbose logging
+        
+        # 利用制限をチェックしてフォールバックを実行
+        logger.info(f"Before fallback: results types = {[type(r).__name__ for r in results]}")
+        results = await self._apply_fallbacks(
+            results,
+            [Persona.MELCHIOR, Persona.BALTHASAR, Persona.CASPAR],
+            [mel_prompt, bal_prompt, cas_prompt],
+            proposal,
+            trace_id,
+            verbose,
+            logs,
+            timeline,
+        )
+        logger.info(f"After fallback: results types = {[type(r).__name__ for r in results]}")
+        
+        # Parse results with verbose logging (フォールバック後の結果を使用)
         mel_result = self._parse_persona_result(
             Persona.MELCHIOR, results[0], "melchior"
         )
@@ -500,3 +529,165 @@ class MagiConsensusEngine:
                     actions.append("Consider refactoring")
 
         return actions
+
+    async def _apply_fallbacks(
+        self,
+        results: list[LLMResult | Exception],
+        personas: list[Persona],
+        prompts: list[str],
+        proposal: str,
+        trace_id: str | None,
+        verbose: bool,
+        logs: list[Dict[str, Any]],
+        timeline: list[str],
+    ) -> list[LLMResult | Exception]:
+        """
+        Apply fallback logic for rate-limited LLMs in consensus mode.
+
+        Args:
+            results: Initial LLM results
+            personas: List of personas (MELCHIOR, BALTHASAR, CASPAR)
+            prompts: Original prompts for each persona
+            proposal: Original proposal
+            trace_id: Trace ID for logging
+            verbose: Verbose mode flag
+            logs: Logs list to append to
+            timeline: Timeline list to append to
+
+        Returns:
+            Updated results with fallbacks applied
+        """
+        if not self.fallback_manager:
+            # フォールバックマネージャーが利用できない場合は元の結果を返す
+            logger.warning("Fallback manager not available, skipping fallback logic")
+            return results
+        
+        logger.info(f"Applying fallbacks for {len(results)} results")
+
+        updated_results = list(results)
+        persona_to_llm = {
+            Persona.MELCHIOR: LLMName.GEMINI,
+            Persona.BALTHASAR: LLMName.CLAUDE,
+            Persona.CASPAR: LLMName.CODEX,
+        }
+        persona_to_client = {
+            Persona.MELCHIOR: self.melchior_client,
+            Persona.BALTHASAR: self.balthasar_client,
+            Persona.CASPAR: self.caspar_client,
+        }
+
+        # 各結果をチェックしてフォールバックを適用
+        for i, (result, persona, prompt) in enumerate(zip(results, personas, prompts)):
+            logger.debug(f"Checking result {i} for persona {persona.value}: type={type(result)}")
+            
+            # Exception型の結果もチェック（asyncio.gatherでreturn_exceptions=Trueの場合）
+            error_msg = None
+            if isinstance(result, LLMFailure):
+                error_msg = result.error_message
+            elif isinstance(result, Exception):
+                error_msg = str(result)
+                logger.info(f"Exception detected for {persona.value}: {error_msg[:200]}")
+            
+            if error_msg:
+                llm_name = persona_to_llm[persona]
+                logger.info(f"Error detected for {persona.value} ({llm_name}): {error_msg[:200]}")
+                
+                rate_limit_info = self.fallback_manager.check_rate_limit(error_msg, llm_name)
+                logger.info(f"Rate limit check for {persona.value} ({llm_name}): is_rate_limited={rate_limit_info.is_rate_limited}")
+
+                if rate_limit_info.is_rate_limited:
+                    # 利用制限に達している場合、フォールバックを試みる
+                    self.fallback_manager.mark_rate_limited(llm_name)
+                    logger.info(f"{persona.value} ({llm_name}) is rate limited, attempting fallback")
+
+                    # フォールバック先を取得（コンセンサスモードでは役割ベースのフォールバック）
+                    # ペルソナの役割に基づいてフォールバック先を決定
+                    fallback_client, fallback_info = self._get_fallback_for_persona(persona)
+
+                    if fallback_client and fallback_info:
+                        # フォールバック先で再実行（同じペルソナプロンプトを使用）
+                        logger.info(
+                            f"Using {fallback_info.fallback_llm} as fallback for {persona.value} ({llm_name})"
+                        )
+                        try:
+                            fallback_result = await fallback_client.generate_with_result(
+                                prompt, trace_id=trace_id
+                            )
+                            updated_results[i] = fallback_result
+
+                            if verbose:
+                                timeline.append(
+                                    f"[{persona.value}] fallback to {fallback_info.fallback_llm} "
+                                    f"(rate limit, trace_id={trace_id or 'unknown'})"
+                                )
+                                logs.append({
+                                    "t": datetime.now(timezone.utc).isoformat(),
+                                    "persona": persona.value,
+                                    "fallback": {
+                                        "original_llm": fallback_info.original_llm,
+                                        "fallback_llm": fallback_info.fallback_llm,
+                                        "reason": fallback_info.reason,
+                                    },
+                                })
+                        except Exception as e:
+                            logger.error(f"Fallback failed for {persona.value}: {e}")
+                            # フォールバックも失敗した場合は元の結果を保持
+
+        return updated_results
+
+    def _get_fallback_for_persona(self, persona: Persona) -> tuple[Optional[BaseLLMClient], Optional]:
+        """
+        Get fallback client for a persona in consensus mode.
+
+        In consensus mode, we use a simple fallback strategy:
+        - MELCHIOR (Gemini) -> Claude or Codex
+        - BALTHASAR (Claude) -> Gemini or Codex
+        - CASPAR (Codex) -> Claude or Gemini
+
+        Args:
+            persona: The persona that needs fallback
+
+        Returns:
+            Tuple of (fallback_client, fallback_info) or (None, None)
+        """
+        if not self.fallback_manager:
+            return None, None
+
+        from magi.fallback_manager import FallbackInfo
+
+        # ペルソナからLLM名を取得
+        persona_to_llm = {
+            Persona.MELCHIOR: LLMName.GEMINI,
+            Persona.BALTHASAR: LLMName.CLAUDE,
+            Persona.CASPAR: LLMName.CODEX,
+        }
+        original_llm = persona_to_llm.get(persona)
+
+        if not original_llm:
+            return None, None
+
+        # フォールバック優先順位（Claude優先）
+        fallback_candidates = []
+        if persona == Persona.MELCHIOR:  # Gemini
+            fallback_candidates = [LLMName.CLAUDE, LLMName.CODEX]
+        elif persona == Persona.BALTHASAR:  # Claude
+            fallback_candidates = [LLMName.GEMINI, LLMName.CODEX]
+        elif persona == Persona.CASPAR:  # Codex
+            fallback_candidates = [LLMName.CLAUDE, LLMName.GEMINI]
+
+        # 利用可能なフォールバック先を選択
+        for candidate in fallback_candidates:
+            if not self.fallback_manager.is_rate_limited(candidate):
+                client = self.fallback_manager.clients.get(candidate)
+                if client:
+                    fallback_info = FallbackInfo(
+                        original_llm=original_llm,
+                        fallback_llm=candidate,
+                        role=persona.value,
+                        reason=f"{original_llm} is rate limited, using {candidate} as fallback for {persona.value}",
+                    )
+                    logger.info(f"Selected {candidate} as fallback for {persona.value} (original: {original_llm})")
+                    return client, fallback_info
+
+        logger.warning(f"No available fallback for {persona.value} (original: {original_llm})")
+        return None, None
